@@ -1,0 +1,193 @@
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { api } from '../services/api';
+import './Quiz.css';
+
+export default function Quiz() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [quiz, setQuiz] = useState(null);
+  const [current, setCurrent] = useState(0);
+  const [answers, setAnswers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [startTime] = useState(Date.now());
+  const [explanation, setExplanation] = useState(null);
+  const [explaining, setExplaining] = useState(false);
+
+  useEffect(() => {
+    api.quiz.get(id)
+      .then(({ quiz: q }) => {
+        setQuiz(q);
+        setAnswers(q.questions.map(() => ({ userAnswer: '' })));
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  const question = quiz?.questions[current];
+
+  const setAnswer = (value) => {
+    const updated = [...answers];
+    updated[current] = { userAnswer: value };
+    setAnswers(updated);
+  };
+
+  const handleExplain = async () => {
+    if (!answers[current]?.userAnswer) return;
+    setExplaining(true);
+    try {
+      const res = await api.ai.explain({
+        question: question.question,
+        userAnswer: answers[current].userAnswer,
+        correctAnswer: question.correctAnswer,
+        options: question.options,
+      });
+      setExplanation(res.explanation);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setExplaining(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const timeTaken = Math.round((Date.now() - startTime) / 1000);
+      const result = await api.quiz.submit({
+        quizId: id,
+        answers,
+        timeTaken,
+      });
+      navigate(`/quiz/${id}/result`, { state: { result } });
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="loading">
+        <div className="spinner" />
+        Loading quiz...
+      </div>
+    );
+  }
+
+  if (!quiz) {
+    return (
+      <div className="empty-state">
+        <h3>Quiz not found</h3>
+        <p>This quiz may not be available yet or an error occurred while loading it.</p>
+      </div>
+    );
+  }
+
+  const totalQuestions = quiz.questions?.length || 0;
+  const progress = totalQuestions > 0 ? ((current + 1) / totalQuestions) * 100 : 0;
+  const allAnswered = answers.length === totalQuestions && answers.every((a) => a.userAnswer);
+
+  return (
+    <div className="quiz-page">
+      <div className="quiz-header">
+        <h1>{quiz.title || 'Adaptive Quiz'}</h1>
+        <span className="badge badge-primary">{quiz.difficulty}</span>
+      </div>
+
+      <div className="quiz-progress">
+        <div className="progress-bar">
+          <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+        </div>
+        <span>Question {current + 1} of {quiz.questions.length}</span>
+      </div>
+
+      <div className="card quiz-question">
+        {!question ? (
+          <div className="empty-state">
+            <h3>Question not available</h3>
+            <p>This question is missing or could not be loaded.</p>
+          </div>
+        ) : (
+          <>
+            <div className="question-meta">
+              <span className="badge badge-primary">{(question.type || 'short_answer').replace('_', ' ')}</span>
+              {question.topic && <span className="topic-tag">{question.topic}</span>}
+            </div>
+
+            <h2>{question.question}</h2>
+
+            {(question.type === 'mcq' || question.type === 'true_false') ? (
+              <div className="options-list">
+                {(question.options || []).map((opt, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className={`option-btn ${answers[current]?.userAnswer === opt ? 'selected' : ''}`}
+                    onClick={() => setAnswer(opt)}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <textarea
+                value={answers[current]?.userAnswer || ''}
+                onChange={(e) => setAnswer(e.target.value)}
+                rows={4}
+                placeholder="Type your answer..."
+              />
+            )}
+          </>
+        )}
+
+        <button
+          className="btn btn-secondary explain-btn"
+          onClick={handleExplain}
+          disabled={!answers[current]?.userAnswer || explaining}
+        >
+          {explaining ? 'Explaining...' : 'Explain (before submit)'}
+        </button>
+
+        {explanation && (
+          <div className="explanation-box">
+            <h4>AI Explanation</h4>
+            <p>{explanation.explanation}</p>
+            {explanation.realWorldExample && <p><strong>Example:</strong> {explanation.realWorldExample}</p>}
+            {explanation.interviewTip && <p><strong>Tip:</strong> {explanation.interviewTip}</p>}
+          </div>
+        )}
+      </div>
+
+      <div className="quiz-nav">
+        <button
+          className="btn btn-secondary"
+          onClick={() => { setCurrent(current - 1); setExplanation(null); }}
+          disabled={current === 0}
+        >
+          Previous
+        </button>
+
+        {current < quiz.questions.length - 1 ? (
+          <button
+            className="btn btn-primary"
+            onClick={() => { setCurrent(current + 1); setExplanation(null); }}
+            disabled={!answers[current]?.userAnswer}
+          >
+            Next
+          </button>
+        ) : (
+          <button
+            className="btn btn-primary"
+            onClick={handleSubmit}
+            disabled={!allAnswered || submitting}
+          >
+            {submitting ? 'Evaluator Agent working...' : 'Submit Quiz'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,52 @@
+node_modules/
+dist/
+build/
+uploads/*
+!uploads/.gitkeep
+.env
+*.log
+.DS_Store
+.env.example
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+
+# MongoDB local database
+.mongodata/
+
+# Claude
+.claude/
+
+# Logs
+*.log
+
+# Temporary JSON/debug files
+server/_*.json
+server/_verify_gemini.mjs
+server/diagnose-*.mjs
+
+# OS
+.DS_Store
+Thumbs.db
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# MongoDB data
+.mongodata/
+
+# Claude
+.claude/
+
+# Debug/temp files
+server/_*.json
+server/diagnose-*.mjs
+server/_verify_*.mjs
+
+# Logs
+*.log
