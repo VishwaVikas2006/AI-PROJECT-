@@ -14,11 +14,28 @@ async function request(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  // Network-level failure (backend down / proxy can't reach :5000) throws here
+  // before `res` exists — surface a clear message instead of a generic one.
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch {
+    throw new Error(
+      'Cannot reach the server. Make sure the backend is running (npm run dev:server).'
+    );
+  }
+
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new Error(data.message || 'Request failed');
+    const detail = data.message
+      ? data.message
+      : res.status === 401
+        ? 'Your session expired. Please log in again.'
+        : `Request failed (${res.status})`;
+    const err = new Error(detail);
+    err.status = res.status;
+    throw err;
   }
 
   return data;

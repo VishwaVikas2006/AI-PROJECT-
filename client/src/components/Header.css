@@ -1,0 +1,114 @@
+.site-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  padding: 1.5rem 1.5rem;
+}
+
+.site-header__inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #ffffff;
+  text-decoration: none;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.brand__mark {
+  color: #5ed29c;
+  font-size: 1.1rem;
+}
+
+.brand__text {
+  white-space: nowrap;
+}
+
+.desktop-nav {
+  display: none;
+  align-items: center;
+  gap: 2.25rem;
+}
+
+.nav-link {
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.nav-link:hover,
+.nav-link--active {
+  color: #5ed29c;
+}
+
+.menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  padding: 0.25rem;
+  border-radius: 8px;
+}
+
+.mobile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #070b0a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  animation: overlayIn 0.25s ease both;
+}
+
+.mobile-overlay__close {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  padding: 0.25rem;
+}
+
+.mobile-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.75rem;
+}
+
+.mobile-nav .nav-link {
+  font-size: 1.5rem;
+  letter-spacing: 0.05em;
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (min-width: 1024px) {
+  .desktop-nav { display: flex; }
+  .menu-toggle { display: none; }
+  .site-header { padding: 1.75rem 2.5rem; }
+}

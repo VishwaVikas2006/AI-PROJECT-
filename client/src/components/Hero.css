@@ -1,0 +1,234 @@
+.hero {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #070b0a;
+  padding: 7rem 1.5rem 4rem;
+}
+
+/* ---- Background video ---- */
+.hero__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.6;
+  z-index: 0;
+}
+
+/* Dark gradient from the left (#070b0a -> transparent) */
+.hero__overlay-left {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    90deg,
+    #070b0a 0%,
+    rgba(7, 11, 10, 0.55) 35%,
+    transparent 75%
+  );
+  pointer-events: none;
+}
+
+/* Bottom-up gradient for readability */
+.hero__overlay-bottom {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    to top,
+    #070b0a 0%,
+    rgba(7, 11, 10, 0.4) 30%,
+    transparent 65%
+  );
+  pointer-events: none;
+}
+
+/* ---- Vertical grid lines (desktop only) ---- */
+.hero__grid {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.hero__grid-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.hero__grid-line:nth-child(1) { left: 25%; }
+.hero__grid-line:nth-child(2) { left: 50%; }
+.hero__grid-line:nth-child(3) { left: 75%; }
+
+/* ---- Central glow ---- */
+.hero__glow {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  width: 100%;
+  height: 360px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* ---- Content ---- */
+.hero__content {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 768px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* ---- Liquid glass card ---- */
+.liquid-glass {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  transform: translateY(-50px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.01);
+  background-blend-mode: luminosity;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  text-align: left;
+}
+
+/* Sharp high-end gradient border frame */
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1.4px;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.7),
+    rgba(255, 255, 255, 0.15)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.liquid-glass__tag {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #5ed29c;
+}
+
+.liquid-glass__title {
+  font-family: 'Inter', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #ffffff;
+}
+
+.liquid-glass__title .serif {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-weight: 400;
+}
+
+.liquid-glass__desc {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ---- Typography ---- */
+.hero__eyebrow {
+  margin-top: 1.25rem;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5ed29c;
+}
+
+.hero__headline {
+  margin-top: 1rem;
+  font-family: 'Inter', sans-serif;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  font-size: 40px;
+  color: #ffffff;
+}
+
+.hero__dot {
+  color: #5ed29c;
+}
+
+.hero__desc {
+  margin-top: 1.5rem;
+  max-width: 512px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.hero__cta {
+  margin-top: 2rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.75rem;
+  border-radius: 9999px;
+  background: #5ed29c;
+  color: #070b0a;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.hero__cta:hover {
+  background: #6ee0ab;
+  transform: translateY(-1px);
+}
+
+/* ---- Responsive scale-up ---- */
+@media (min-width: 768px) {
+  .hero__headline { font-size: 56px; }
+  .hero__grid { display: block; }
+}
+
+@media (min-width: 1024px) {
+  .hero__headline { font-size: 72px; }
+}

@@ -9,10 +9,12 @@ import SessionDetail from './pages/SessionDetail';
 import Quiz from './pages/Quiz';
 import QuizResult from './pages/QuizResult';
 import Progress from './pages/Progress';
+import Landing from './pages/Landing';
 
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
       <Route

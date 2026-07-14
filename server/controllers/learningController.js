@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import LearningSession from '../models/LearningSession.js';
 import { extractTextFromFile, truncateContent, cleanContent } from '../ai/utils/fileParser.js';
 import { runContentAnalysis } from '../ai/langgraph/graph.js';
@@ -214,6 +215,9 @@ export async function getSessions(req, res, next) {
 
 export async function getSession(req, res, next) {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
     const session = await LearningSession.findOne({
       _id: req.params.id,
       user: req.userId,
@@ -231,6 +235,9 @@ export async function getSession(req, res, next) {
 
 export async function reanalyzeSession(req, res, next) {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
     const session = await LearningSession.findOne({
       _id: req.params.id,
       user: req.userId,

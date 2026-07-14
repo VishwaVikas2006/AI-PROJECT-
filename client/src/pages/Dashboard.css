@@ -10,7 +10,7 @@
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
+  gap: 1.1rem;
   margin-bottom: 2rem;
 }
 
@@ -21,20 +21,23 @@
 }
 
 .stat-label {
-  font-size: 0.85rem;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .stat-value {
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 1.25rem;
 }
 
 .dashboard-grid h2 {
@@ -45,39 +48,42 @@
 .session-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .session-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem;
-  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  transition: all 0.2s;
-  color: inherit;
+  background: var(--surface);
+  color: var(--text);
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
 .session-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(94, 210, 156, 0.4);
   background: var(--surface-hover);
-  border-color: var(--primary);
 }
 
 .session-item h3 {
-  font-size: 0.95rem;
-  margin-bottom: 0.25rem;
+  font-size: 0.98rem;
+  font-weight: 600;
 }
 
 .session-item p {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
+  margin-top: 0.15rem;
 }
 
 .topic-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.85rem;
 }
 
 .topic-item {
@@ -91,7 +97,7 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  min-width: 140px;
+  min-width: 150px;
 }
 
 .topic-mastery .progress-bar {
@@ -101,7 +107,8 @@
 .topic-mastery span {
   font-size: 0.85rem;
   color: var(--text-muted);
-  min-width: 36px;
+  min-width: 38px;
+  text-align: right;
 }
 
 .empty-text {
@@ -109,7 +116,7 @@
   font-size: 0.9rem;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 860px) {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }

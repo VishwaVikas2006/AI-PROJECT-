@@ -18,20 +18,28 @@ function getFastModel(options) {
   return options.model || process.env.GEMINI_FAST_MODEL || process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 }
 
-// Per-feature output token budgets (Free Tier tuning).
-// These are hard caps. Prompts ask for even tighter targets so real usage
-// stays well under the cap.
+// Per-feature output token budgets.
+// These are the STARTING caps. gemini-2.0-flash supports up to 8192 output
+// tokens, so we size each budget to comfortably fit the JSON each agent emits.
+// The previous budgets (Summary 360, QuizGenerator 700, ...) were far too small
+// and caused Gemini to hit maxOutputTokens mid-JSON — truncating the response
+// and producing the "Unterminated string in JSON" parse errors. If a response
+// is still truncated, callWithRetry escalates the budget (see MAX_OUTPUT_CAP).
 const TOKEN_BUDGETS = {
-  Analyzer: 600, // target ~500 tokens
-  QuizGenerator: 700, // exactly 5 questions
-  Planner: 350,
-  StudyPlanner: 600, // 5-day plan
-  Evaluator: 900, // per-question feedback
-  Summary: 360, // target ~300 tokens
-  Flashcards: 700, // <=10 cards
-  Explain: 420, // target ~350 tokens
-  Diagnose: 800,
+  Analyzer: 900, // 4-8 topics + objectives + keywords
+  QuizGenerator: 1600, // exactly 5 questions
+  Planner: 500,
+  StudyPlanner: 1200, // multi-day plan
+  Evaluator: 1500, // per-question feedback
+  Summary: 1200, // concepts + definitions + mistakes + memory tricks
+  Flashcards: 1500, // <=10 cards
+  Explain: 900, // explanation + example + tip
+  Diagnose: 1200,
 };
+
+// Hard ceiling for output tokens (gemini-2.0-flash maximum). Truncation retries
+// double the budget until they reach this cap.
+const MAX_OUTPUT_CAP = 8192;
 
 function isDebug() {
   return process.env.GEMINI_DEBUG === 'true';
@@ -104,6 +112,10 @@ function buildBody(messages, options) {
   };
   if (options.json) {
     generationConfig.responseMimeType = 'application/json';
+    // gemini-3.x-flash are thinking models: thinking tokens count against
+    // maxOutputTokens and starve the actual JSON output (finishReason MAX_TOKENS,
+    // truncated response). Disable thinking so the whole budget goes to the answer.
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
   }
 
   const body = { contents, generationConfig };
@@ -137,6 +149,15 @@ function classifyError(status, parsedDetail) {
   return `Gemini API error: ${status} - ${parsedDetail}`;
 }
 
+// A response cut off by the output-token limit. We tag it with isTruncation so
+// callWithRetry can transparently retry with a larger budget instead of letting
+// the half-written JSON bubble up as an opaque parse error.
+function makeTruncationError() {
+  const err = new Error('Gemini stopped early because the output token limit was reached.');
+  err.isTruncation = true;
+  return err;
+}
+
 async function parseGeminiResponse(response) {
   const text = await response.text();
   let data;
@@ -152,15 +173,21 @@ async function parseGeminiResponse(response) {
   }
 
   const candidate = data.candidates?.[0];
+  const finishReason = candidate?.finishReason;
+
+  // CRITICAL: detect truncation regardless of whether `content` is empty.
+  // When maxOutputTokens is hit mid-JSON, Gemini still returns partial content,
+  // so the old check (only when !content) let truncated payloads slip through
+  // to JSON.parse and surface as "Unterminated string in JSON".
+  if (finishReason === 'MAX_TOKENS') {
+    throw makeTruncationError();
+  }
+
   const content = candidate?.content?.parts?.map((p) => p.text || '').join('') || '';
 
   if (!content) {
-    const finishReason = candidate?.finishReason;
     if (finishReason === 'SAFETY') {
       throw new Error('Gemini blocked the response due to safety filters.');
-    }
-    if (finishReason === 'MAX_TOKENS') {
-      throw new Error('Gemini response was truncated (max output tokens reached).');
     }
     throw new Error(`Gemini returned no content. Raw response: ${text.slice(0, 300)}`);
   }
@@ -168,6 +195,10 @@ async function parseGeminiResponse(response) {
   if (isDebug()) {
     console.log('\n========== RAW MODEL CONTENT ==========');
     console.log(content);
+    console.log('========== METADATA ==========');
+    console.log('finishReason:', finishReason);
+    console.log('usageMetadata:', JSON.stringify(data.usageMetadata || {}));
+    console.log('content length:', content.length);
     console.log('=======================================\n');
   }
 
@@ -246,6 +277,7 @@ function isTransient(err) {
     /\b(500|502|503|504)\b/.test(err.message) ||
     /timed out/i.test(err.message) ||
     /network/i.test(err.message) ||
+    /ECONNRESET/i.test(err.message) ||
     /fetch failed/i.test(err.message)
   );
 }
@@ -254,15 +286,39 @@ export function isRateLimit(err) {
   return Boolean(err?.isRateLimit) || /\b429\b/.test(err?.message || '');
 }
 
+// Resolve the starting output-token budget for a request.
+function resolveMaxTokens(options) {
+  return Number.isFinite(Number(options.maxTokens)) && Number(options.maxTokens) > 0
+    ? Number(options.maxTokens)
+    : TOKEN_BUDGETS[options.agentName] || 1024;
+}
+
 async function callWithRetry(messages, options) {
+  let maxTokens = resolveMaxTokens(options);
   const attempts = (options.retries ?? DEFAULT_RETRIES) + 1;
   let lastError;
+  // Truncation retries escalate the budget and are allowed in addition to the
+  // normal transient retries, so a genuinely large response still completes.
+  let truncationTries = 0;
+  const MAX_TRUNCATION_TRIES = 3;
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await sendGeminiRequest(messages, options);
+      return await sendGeminiRequest(messages, { ...options, maxTokens });
     } catch (err) {
       lastError = err;
       log('Attempt error', { attempt, error: err.message });
+
+      // Truncation: give the model more room and retry without counting it
+      // against the transient retry budget.
+      if (err.isTruncation && maxTokens < MAX_OUTPUT_CAP && truncationTries < MAX_TRUNCATION_TRIES) {
+        maxTokens = Math.min(MAX_OUTPUT_CAP, Math.ceil(maxTokens * 2));
+        truncationTries += 1;
+        log('Output truncated — retrying with larger token budget', { truncationTries, maxTokens });
+        attempt -= 1; // do not consume a transient attempt
+        continue;
+      }
+
       if (!isTransient(err)) throw err;
       if (attempt < attempts) {
         await new Promise((resolve) => setTimeout(resolve, 600 * attempt));

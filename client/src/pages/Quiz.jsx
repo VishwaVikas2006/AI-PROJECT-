@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { useToast } from '../components/Toast';
 import './Quiz.css';
 
 export default function Quiz() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { notify, withLoading } = useToast();
   const [quiz, setQuiz] = useState(null);
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState([]);
@@ -21,9 +23,9 @@ export default function Quiz() {
         setQuiz(q);
         setAnswers(q.questions.map(() => ({ userAnswer: '' })));
       })
-      .catch(console.error)
+      .catch((err) => notify({ type: 'error', title: 'Could not load quiz', message: err.message }))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, notify]);
 
   const question = quiz?.questions[current];
 
@@ -33,36 +35,51 @@ export default function Quiz() {
     setAnswers(updated);
   };
 
-  const handleExplain = async () => {
-    if (!answers[current]?.userAnswer) return;
+  const handleExplain = useCallback(async () => {
+    if (!answers[current]?.userAnswer || explaining) return;
     setExplaining(true);
     try {
-      const res = await api.ai.explain({
-        question: question.question,
-        userAnswer: answers[current].userAnswer,
-        correctAnswer: question.correctAnswer,
-        options: question.options,
-      });
+      const res = await withLoading('Generating explanation…', () =>
+        api.ai.explain({
+          question: question.question,
+          userAnswer: answers[current].userAnswer,
+          correctAnswer: question.correctAnswer,
+          options: question.options,
+        }),
+      );
       setExplanation(res.explanation);
     } catch (err) {
-      alert(err.message);
+      notify({
+        type: 'error',
+        title: 'Could not explain answer',
+        message: err.message,
+        action: { label: 'Retry', onClick: handleExplain },
+      });
     } finally {
       setExplaining(false);
     }
-  };
+  }, [answers, current, explaining, question, notify, withLoading]);
 
   const handleSubmit = async () => {
+    if (submitting) return;
     setSubmitting(true);
     try {
       const timeTaken = Math.round((Date.now() - startTime) / 1000);
-      const result = await api.quiz.submit({
-        quizId: id,
-        answers,
-        timeTaken,
-      });
+      const result = await withLoading('Evaluating your answers…', () =>
+        api.quiz.submit({
+          quizId: id,
+          answers,
+          timeTaken,
+        }),
+      );
       navigate(`/quiz/${id}/result`, { state: { result } });
     } catch (err) {
-      alert(err.message);
+      notify({
+        type: 'error',
+        title: 'Could not submit quiz',
+        message: err.message,
+        action: { label: 'Retry', onClick: handleSubmit },
+      });
     } finally {
       setSubmitting(false);
     }
@@ -148,7 +165,8 @@ export default function Quiz() {
           onClick={handleExplain}
           disabled={!answers[current]?.userAnswer || explaining}
         >
-          {explaining ? 'Explaining...' : 'Explain (before submit)'}
+          {explaining && <span className="btn-spinner" />}
+          {explaining ? 'Generating Explanation…' : 'Explain (before submit)'}
         </button>
 
         {explanation && (
@@ -184,7 +202,8 @@ export default function Quiz() {
             onClick={handleSubmit}
             disabled={!allAnswered || submitting}
           >
-            {submitting ? 'Evaluator Agent working...' : 'Submit Quiz'}
+            {submitting && <span className="btn-spinner" />}
+            {submitting ? 'Evaluating…' : 'Submit Quiz'}
           </button>
         )}
       </div>

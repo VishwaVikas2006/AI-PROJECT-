@@ -1,11 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { useToast } from '../components/Toast';
 import './SessionDetail.css';
 
 export default function SessionDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { notify, withLoading } = useToast();
+
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [quizLoading, setQuizLoading] = useState(false);
@@ -49,52 +52,70 @@ export default function SessionDetail() {
     }
   }, [session, summary, flashcards]);
 
-  const handleGenerateQuiz = async (regenerate = false) => {
+  // Run an AI action behind the global loading bar; on failure, show a toast
+  // with an inline Retry button (and never a raw browser alert).
+  const runAction = useCallback(
+    async ({ label, fn, onSuccess, errorTitle }) => {
+      try {
+        const result = await withLoading(label, fn);
+        onSuccess?.(result);
+      } catch (err) {
+        notify({
+          type: 'error',
+          title: errorTitle || 'Could not complete this action',
+          message: err.message,
+          action: {
+            label: 'Retry',
+            onClick: () => runAction({ label, fn, onSuccess, errorTitle }),
+          },
+        });
+      }
+    },
+    [notify, withLoading],
+  );
+
+  const handleGenerateQuiz = (regenerate = false) => {
+    if (quizLoading) return;
     setQuizLoading(true);
-    try {
-      const { quiz } = await api.quiz.generate({ sessionId: id, questionCount, regenerate });
-      navigate(`/quiz/${quiz._id}`);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setQuizLoading(false);
-    }
+    runAction({
+      label: regenerate ? 'Regenerating your quiz…' : 'Generating your quiz…',
+      fn: () => api.quiz.generate({ sessionId: id, questionCount, regenerate }),
+      onSuccess: ({ quiz }) => navigate(`/quiz/${quiz._id}`),
+      errorTitle: 'Quiz generation failed',
+    }).finally(() => setQuizLoading(false));
   };
 
-  const handleFlashcards = async (regenerate = false) => {
+  const handleFlashcards = (regenerate = false) => {
+    if (flashcardsLoading) return;
     setFlashcardsLoading(true);
-    try {
-      const res = await api.ai.flashcards({ sessionId: id, regenerate, count: 5 });
-      setFlashcards(res.flashcards);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setFlashcardsLoading(false);
-    }
+    runAction({
+      label: regenerate ? 'Regenerating flashcards…' : 'Generating flashcards…',
+      fn: () => api.ai.flashcards({ sessionId: id, regenerate, count: 5 }),
+      onSuccess: ({ flashcards: fc }) => setFlashcards(fc),
+      errorTitle: 'Flashcard generation failed',
+    }).finally(() => setFlashcardsLoading(false));
   };
 
-  const handleSummary = async (regenerate = false) => {
+  const handleSummary = (regenerate = false) => {
+    if (summaryLoading) return;
     setSummaryLoading(true);
-    try {
-      const res = await api.ai.summary({ sessionId: id, regenerate });
-      setSummary(res.summary);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setSummaryLoading(false);
-    }
+    runAction({
+      label: regenerate ? 'Regenerating summary…' : 'Generating summary…',
+      fn: () => api.ai.summary({ sessionId: id, regenerate }),
+      onSuccess: ({ summary: s }) => setSummary(s),
+      errorTitle: 'Summary generation failed',
+    }).finally(() => setSummaryLoading(false));
   };
 
-  const handleStudyPlan = async (regenerate = false) => {
+  const handleStudyPlan = (regenerate = false) => {
+    if (studyPlanLoading) return;
     setStudyPlanLoading(true);
-    try {
-      const res = await api.ai.studyPlan({ sessionId: id, regenerate });
-      setStudyPlan(res.studyPlan);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setStudyPlanLoading(false);
-    }
+    runAction({
+      label: regenerate ? 'Regenerating study plan…' : 'Generating study plan…',
+      fn: () => api.ai.studyPlan({ sessionId: id, regenerate }),
+      onSuccess: ({ studyPlan: sp }) => setStudyPlan(sp),
+      errorTitle: 'Study plan generation failed',
+    }).finally(() => setStudyPlanLoading(false));
   };
 
   if (loading) {
@@ -112,6 +133,9 @@ export default function SessionDetail() {
 
   const isAnalyzing = session.analysisStatus === 'pending' || session.analysisStatus === 'processing';
   const canGenerateQuiz = session.analysisStatus === 'completed' && Array.isArray(session.topics) && session.topics.length > 0 && !quizLoading;
+  const hasFlashcards = Array.isArray(flashcards) && flashcards.length > 0;
+  const hasSummary = Boolean(summary);
+  const hasStudyPlan = Boolean(studyPlan);
 
   return (
     <div>
@@ -198,76 +222,111 @@ export default function SessionDetail() {
             </div>
           )}
 
+          {/* ---------- Action bar: grouped, primary action stands out ---------- */}
           <div className="action-bar">
+            <div className="action-primary">
               <div className="quiz-settings">
-              <label htmlFor="questionCount">Questions</label>
-              <select
-                id="questionCount"
-                value={questionCount}
-                onChange={(e) => setQuestionCount(Number(e.target.value))}
+                <label htmlFor="questionCount">Questions</label>
+                <select
+                  id="questionCount"
+                  value={questionCount}
+                  onChange={(e) => setQuestionCount(Number(e.target.value))}
+                >
+                  <option value={5}>5</option>
+                </select>
+              </div>
+              <button
+                className="btn btn-primary btn-generate"
+                onClick={() => handleGenerateQuiz(false)}
+                disabled={!canGenerateQuiz}
               >
-                <option value={5}>5</option>
-              </select>
+                {quizLoading && <span className="btn-spinner" />}
+                {quizLoading ? 'Generating Quiz…' : `Generate ${questionCount}-Question Quiz`}
+              </button>
+              <button
+                className="btn btn-ghost"
+                onClick={() => handleGenerateQuiz(true)}
+                disabled={!canGenerateQuiz}
+                title="Regenerate Quiz"
+              >
+                {quizLoading ? <span className="btn-spinner" /> : '↻'}
+                {quizLoading ? '' : 'Regenerate'}
+              </button>
             </div>
-            <button
-              className="btn btn-primary"
-              onClick={() => handleGenerateQuiz(false)}
-              disabled={!canGenerateQuiz || quizLoading}
-            >
-              {quizLoading ? 'Generating Quiz...' : `Generate ${questionCount}-Question Quiz`}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => handleGenerateQuiz(true)}
-              disabled={!canGenerateQuiz || quizLoading}
-            >
-              {quizLoading ? 'Regenerating...' : 'Regenerate Quiz'}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => handleFlashcards(false)}
-              disabled={flashcardsLoading}
-            >
-              {flashcardsLoading ? 'Generating Flashcards...' : 'Flashcards'}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => handleFlashcards(true)}
-              disabled={flashcardsLoading}
-            >
-              {flashcardsLoading ? 'Regenerating...' : 'Regenerate Flashcards'}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => handleSummary(false)}
-              disabled={summaryLoading}
-            >
-              {summaryLoading ? 'Generating Summary...' : 'Study Summary'}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => handleSummary(true)}
-              disabled={summaryLoading}
-            >
-              {summaryLoading ? 'Regenerating...' : 'Regenerate Summary'}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => handleStudyPlan(false)}
-              disabled={studyPlanLoading}
-            >
-              {studyPlanLoading ? 'Generating Study Plan...' : 'Study Plan'}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => handleStudyPlan(true)}
-              disabled={studyPlanLoading}
-            >
-              {studyPlanLoading ? 'Regenerating...' : 'Regenerate Study Plan'}
-            </button>
+
+            <div className="action-divider" />
+
+            <div className="action-group">
+              <div className="action-cell">
+                <span className="action-label">Flashcards</span>
+                <div className="action-cell-btns">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleFlashcards(false)}
+                    disabled={flashcardsLoading}
+                  >
+                    {flashcardsLoading && <span className="btn-spinner" />}
+                    {flashcardsLoading ? 'Generating…' : 'Generate'}
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => handleFlashcards(true)}
+                    disabled={flashcardsLoading}
+                    title="Regenerate Flashcards"
+                  >
+                    ↻
+                  </button>
+                </div>
+              </div>
+
+              <div className="action-cell">
+                <span className="action-label">Study Summary</span>
+                <div className="action-cell-btns">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleSummary(false)}
+                    disabled={summaryLoading}
+                  >
+                    {summaryLoading && <span className="btn-spinner" />}
+                    {summaryLoading ? 'Generating…' : 'Generate'}
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => handleSummary(true)}
+                    disabled={summaryLoading}
+                    title="Regenerate Summary"
+                  >
+                    ↻
+                  </button>
+                </div>
+              </div>
+
+              <div className="action-cell">
+                <span className="action-label">Study Plan</span>
+                <div className="action-cell-btns">
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleStudyPlan(false)}
+                    disabled={studyPlanLoading}
+                  >
+                    {studyPlanLoading && <span className="btn-spinner" />}
+                    {studyPlanLoading ? 'Generating…' : 'Generate'}
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => handleStudyPlan(true)}
+                    disabled={studyPlanLoading}
+                    title="Regenerate Study Plan"
+                  >
+                    ↻
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {flashcards && flashcards.length > 0 && (
+          {/* ---------- Flashcards ---------- */}
+          {hasFlashcards ? (
             <div className="card section">
               <h2>Flashcards</h2>
               <div className="flashcards-grid">
@@ -280,9 +339,15 @@ export default function SessionDetail() {
                 ))}
               </div>
             </div>
+          ) : (
+            <div className="card section empty-hint">
+              <h2>Flashcards</h2>
+              <p>No flashcards generated yet. Generate a set to start memorizing key concepts.</p>
+            </div>
           )}
 
-          {summary && (
+          {/* ---------- Summary ---------- */}
+          {hasSummary ? (
             <div className="card section">
               <h2>Quick Summary</h2>
               <p>{summary.summary || summary}</p>
@@ -303,9 +368,15 @@ export default function SessionDetail() {
                 </>
               )}
             </div>
+          ) : (
+            <div className="card section empty-hint">
+              <h2>Quick Summary</h2>
+              <p>No summary generated yet. Generate one to get a concise recap of this material.</p>
+            </div>
           )}
 
-          {studyPlan && (
+          {/* ---------- Study Plan ---------- */}
+          {hasStudyPlan ? (
             <div className="card section">
               <h2>Today's Study Plan</h2>
               <p>{studyPlan.dailyPlan}</p>
@@ -318,6 +389,11 @@ export default function SessionDetail() {
                   </ul>
                 </div>
               ))}
+            </div>
+          ) : (
+            <div className="card section empty-hint">
+              <h2>Study Plan</h2>
+              <p>No study plan generated yet. Generate a plan to structure your revision.</p>
             </div>
           )}
         </>

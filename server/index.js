@@ -26,6 +26,21 @@ if (!process.env.GEMINI_API_KEY) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Crash-proofing: keep the server process alive across unexpected async errors.
+// An unhandled rejection would otherwise terminate the process, dropping every
+// in-flight connection (the "ECONNRESET" the proxy reported). We log the error,
+// but never exit — a single bad AI call must not take down the API.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err && err.stack ? err.stack : err);
+});
+
+// Give keep-alive sockets enough headroom so proxies don't reset long AI calls.
+app.keepAliveTimeout = 65000;
+app.headersTimeout = 70000;
+
 app.use(
   cors({
     origin: process.env.CLIENT_URL || 'http://localhost:5173',

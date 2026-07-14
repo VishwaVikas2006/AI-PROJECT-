@@ -125,9 +125,9 @@
   display: flex;
   gap: 0.75rem;
   padding: 1rem;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   transition: transform 0.2s, border-color 0.2s, background 0.2s;
 }
 
@@ -173,10 +173,11 @@
 
 .action-bar {
   display: flex;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 1rem;
   flex-wrap: wrap;
   margin-bottom: 1.5rem;
-  padding: 1rem;
+  padding: 1rem 1.1rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -184,13 +185,92 @@
   top: 1rem;
   z-index: 5;
   backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-soft);
+}
+
+.action-primary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.btn-generate {
+  padding: 0.8rem 1.4rem;
+  font-size: 0.95rem;
+}
+
+.action-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0.25rem 0;
+}
+
+.action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  flex: 1 1 auto;
+}
+
+.action-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.action-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.action-cell-btns {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.btn-sm {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.85rem;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 0.7rem 0.85rem;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.btn-ghost.btn-sm {
+  padding: 0.5rem 0.7rem;
+}
+
+.empty-hint {
+  border-style: dashed;
+  border-color: var(--border);
+  background: transparent;
+  box-shadow: none;
+}
+
+.empty-hint p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
 }
 
 .quiz-settings {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-right: auto;
   color: var(--text-muted);
   font-size: 0.9rem;
 }
@@ -206,9 +286,9 @@
 }
 
 .flashcard {
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 1.1rem;
   transition: transform 0.2s, border-color 0.2s;
 }
@@ -236,9 +316,9 @@
 
 .plan-topic {
   padding: 1rem;
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   margin-bottom: 0.75rem;
 }
 
@@ -249,9 +329,9 @@
 }
 
 .keyword-pill {
-  background: rgba(99, 102, 241, 0.12);
+  background: var(--primary-soft);
   color: var(--primary-hover);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  border: 1px solid rgba(94, 210, 156, 0.22);
   padding: 0.3rem 0.75rem;
   border-radius: 999px;
   font-size: 0.8rem;
@@ -264,5 +344,24 @@
 
   .action-bar {
     position: static;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .action-primary {
+    flex-wrap: wrap;
+  }
+
+  .action-divider {
+    width: auto;
+    height: 1px;
+  }
+
+  .action-group {
+    flex-direction: column;
+  }
+
+  .action-cell-btns .btn {
+    flex: 1 1 auto;
   }
 }

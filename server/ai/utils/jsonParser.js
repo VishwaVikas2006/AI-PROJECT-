@@ -1,3 +1,56 @@
+// Best-effort repair of a JSON string that was cut off mid-write (e.g. a
+// truncated model response). It is deliberately conservative: it only returns a
+// value when the repaired text parses as VALID JSON. It never invents data — it
+// merely closes the structures the model had already opened. Returns null if a
+// safe repair cannot be produced. This is a safety net; the Gemini layer retries
+// on truncation before this is ever reached.
+function tryRepair(text) {
+  const trimmed = text.trim();
+  if (!/^[\[{]/.test(trimmed)) return null;
+
+  // Strip a trailing comma that sits right before a closing bracket.
+  let s = trimmed.replace(/,(\s*[}\]])/g, '$1');
+
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === '{' || c === '[') stack.push(c);
+    else if (c === '}' || c === ']') {
+      if (stack.length === 0) return null;
+      const open = stack.pop();
+      if ((c === '}' && open !== '{') || (c === ']' && open !== '[')) return null;
+    }
+  }
+
+  // Close any string the model was still writing, then close open structures
+  // in the reverse order they were opened.
+  let repaired = s;
+  if (inString) repaired += '"';
+  while (stack.length) {
+    const open = stack.pop();
+    repaired += open === '{' ? '}' : ']';
+  }
+
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    return null;
+  }
+}
+
 export function parseJSON(text) {
   if (text == null) throw new Error('Empty AI response');
 
@@ -11,23 +64,29 @@ export function parseJSON(text) {
     .replace(/\s*```$/i, '')
     .trim();
 
-  try {
-    return JSON.parse(cleaned);
-  } catch (err) {
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (match) {
-      try {
-        return JSON.parse(match[0]);
-      } catch (innerErr) {
-        const parseError = new Error(`Failed to parse AI JSON response: ${innerErr.message}`);
-        parseError.rawText = cleaned;
-        throw parseError;
-      }
+  // Candidate substrings to try, in priority order: the whole thing, then the
+  // outermost {…} and […] (models sometimes wrap prose around the JSON).
+  const candidates = [cleaned];
+  const braceMatch = cleaned.match(/\{[\s\S]*\}/);
+  const bracketMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (braceMatch) candidates.push(braceMatch[0]);
+  if (bracketMatch) candidates.push(bracketMatch[0]);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      const repaired = tryRepair(candidate);
+      if (repaired !== null) return repaired;
     }
-    const parseError = new Error(`Failed to parse AI JSON response: ${err.message}`);
-    parseError.rawText = cleaned;
-    throw parseError;
   }
+
+  // Never expose the raw parser detail (position/column) to the caller — the
+  // controller wraps this and shows the message to the user. Raw text stays on
+  // the error object for server-side logging only.
+  const parseError = new Error('The AI returned a response we could not read. Please try again.');
+  parseError.rawText = cleaned;
+  throw parseError;
 }
 
 export async function callAndParse(messages, options = {}) {
