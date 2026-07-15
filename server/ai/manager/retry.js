@@ -44,6 +44,21 @@ export function isRetriable(err) {
 }
 
 /**
+ * Errors that should stop the ENTIRE fallback chain immediately.
+ * Only safety blocks are considered universally fatal across all providers.
+ * All other errors (400, 401, 402, 403) are specific to the current provider
+ * and should trigger a fallback to the next provider.
+ *
+ * @param {Error} err
+ * @returns {boolean}
+ */
+export function isFatalError(err) {
+  if (!err || typeof err.message !== 'string') return false;
+  const msg = err.message;
+  return /safety/i.test(msg) || (/blocked/i.test(msg) && /safety/i.test(msg));
+}
+
+/**
  * Whether an error is a rate-limit specifically.
  * @param {Error} err
  * @returns {boolean}

@@ -21,7 +21,7 @@
 
 import { getProviders } from './providerRegistry.js';
 import { getModel } from './modelSelector.js';
-import { tryProvider, isRetriable, isRateLimitError } from './retry.js';
+import { tryProvider, isRetriable, isRateLimitError, isFatalError } from './retry.js';
 
 // ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -83,9 +83,8 @@ export async function generateText(messages, options = {}) {
         break;
       }
 
-      if (!isRetriable(err)) {
-        // Fatal error (400, 401, 403, safety) — don't try next provider.
-        // The request itself is bad; switching providers won't help.
+      if (isFatalError(err)) {
+        // Universally fatal error (e.g. safety block) — don't try next provider.
         throw err;
       }
 
