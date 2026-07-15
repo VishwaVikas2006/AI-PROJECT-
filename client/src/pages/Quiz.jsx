@@ -23,6 +23,9 @@ export default function Quiz() {
   const abortRef = useRef(new AbortController());
 
   useEffect(() => {
+    mountedRef.current = true;
+    abortRef.current = new AbortController();
+
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();

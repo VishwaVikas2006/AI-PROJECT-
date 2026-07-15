@@ -26,6 +26,11 @@ export default function SessionDetail() {
   const abortRef = useRef(new AbortController());
 
   useEffect(() => {
+    // In React 18 Strict Mode, components mount -> unmount -> remount.
+    // We must reset these refs on mount so they aren't permanently dead.
+    mountedRef.current = true;
+    abortRef.current = new AbortController();
+
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
