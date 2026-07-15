@@ -131,3 +131,331 @@ largest gains on the two heaviest calls (Analysis, Quiz).
   `GEMINI_FAST_MODEL`, with `gemini-2.0-flash` only as a safe fallback when the
   env var is absent.
 - Architecture, routes, schemas, auth, and LangGraph graph structure: **unchanged**.
+
+---
+
+## 9. Session: 2026-07-14 — Bug Fixes, UI/UX & Quiz Option Randomization
+
+> **Scope (this session):** Root-cause fixes for (a) truncated AI JSON responses,
+> (b) Generate-Quiz / session connection resets, (c) the predictable quiz answer
+> position bug, plus UI/UX polish (loading states, toasts, empty states, button
+> grouping). No changes to routes, MongoDB schemas, auth, or LangGraph graph
+> structure. The quiz fix did **not** modify LangGraph or prompts.
+
+### 9.1 Problems reported
+- `Failed to parse AI JSON response: Unterminated string in JSON` on Summary (and
+  similar truncation on Flashcards/Quiz).
+- `ECONNRESET` on `/api/quiz/generate` from the Vite proxy.
+- No visible loading feedback when clicking AI buttons (`alert()` only).
+- Crowded action buttons; no clear primary action; no empty states.
+- Quiz: the same option was correct / highlighted on every question.
+
+### 9.2 Root causes
+1. **Token budgets too small.** `gemini.js` `TOKEN_BUDGETS` were far below the
+   JSON size each agent emits (Summary 360, QuizGenerator 700, …), so Gemini hit
+   `maxOutputTokens` mid-JSON and truncated the response.
+2. **Truncation not detected.** `parseGeminiResponse` only flagged `MAX_TOKENS`
+   when `content` was empty. A truncated JSON still has partial content, so it
+   slipped through to `JSON.parse` and surfaced as the opaque "Unterminated
+   string" error.
+3. **Server not crash-proofed.** An unexpected async error could terminate the
+   process and drop every in-flight connection (the proxy `ECONNRESET`).
+4. **No option shuffling** in the quiz generator; options were stored exactly as
+   Gemini emitted them (consistent position), and the validation
+   `!Array.isArray(result.questions)` also treated a bare JSON array as a failure,
+   triggering a **degenerate fallback** that hard-coded identical options +
+   `correctAnswer: 'Definition'` on every question.
+
+### 9.3 Fixes & files modified
+
+| File | Change |
+|------|--------|
+| `server/ai/utils/gemini.js` | Raised `TOKEN_BUDGETS` to realistic sizes (Gemini 2.0 Flash ≤ 8192 output). `parseGeminiResponse` now detects `MAX_TOKENS` truncation even with partial content. `callWithRetry` retries with a **doubled token budget** on truncation (capped at 8192, ≤3 escalations). `ECONNRESET` added to transient-error detection. Debug logging (finishReason / usageMetadata / length) gated behind `GEMINI_DEBUG`. |
+| `server/ai/utils/jsonParser.js` | Added `tryRepair()` — conservative truncated-JSON repair (closes open structures); returns a friendly message instead of leaking raw parser detail. Tries `{…}` / `[…]` substring extraction. |
+| `server/index.js` | Added `unhandledRejection` / `uncaughtException` handlers (keeps process alive). Tuned `keepAliveTimeout` / `headersTimeout` to avoid keep-alive resets. |
+| `server/ai/agents/quiz.js` | Added `shuffle()` (Fisher-Yates) + `shuffleQuestionOptions()`; each question's options are randomized **independently** while preserving `correctAnswer` by text. Accepts both bare-array and `{questions:[…]}` response shapes. Fallback is now randomized too. |
+| `client/src/components/Toast.jsx` + `Toast.css` | **New.** Toast provider: toast notifications (success/error/warning/info) with inline Retry, and a top global loading bar (shows immediately). |
+| `client/src/main.jsx` | Wrapped app in `ToastProvider`. |
+| `client/src/pages/SessionDetail.jsx` + `.css` | Replaced `alert()` with toasts; regrouped action bar (primary **Generate Quiz** stands out; Flashcards/Summary/Study Plan grouped with Generate + ↻); inline button spinners; empty-state placeholders; global loading bar. |
+| `client/src/pages/Quiz.jsx` | Replaced `alert()` with toasts; explain-topic spinner + global loading bar; submit shows "Evaluating…". |
+
+### 9.4 Quiz option bug — detail
+- **Symptom:** every question highlighted the same option / same correct answer.
+- **Root cause:** no shuffling + a shape check that forced the degenerate fallback
+  (identical options + `correctAnswer: 'Definition'`) whenever Gemini returned a
+  bare array.
+- **Fix:** per-question Fisher-Yates shuffle keeping `correctAnswer` by text; accept
+  both response shapes; randomize the fallback. Correctness is text-based, so the
+  frontend needed no change.
+
+### 9.5 Testing performed
+- `node --check` passed on every modified backend file.
+- `jsonParser` repair test: the truncated Summary JSON from the logs now repairs to
+  valid JSON (extracts the 2 complete `keyConcepts`); valid input still parses;
+  garbage returns a friendly message (no raw detail leaked).
+- `vite build` succeeds (client compiles, no errors).
+- Backend `/api/health` returns `200`.
+- Shuffle test (5 questions with correct answer first): correct positions became
+  `[1,2,0,2,0]` (was `[0,0,0,0,0]`); every question keeps all 4 options + the
+  correct answer; 5 unique option orderings.
+
+### 9.6 Current project status
+- Topic learning, PDF/DOCX/Notes/YouTube upload, session loading, analysis,
+  summary, flashcards, study plan, explain-topic, and quiz generation all
+  functional with loading states, toasts, and empty states.
+- Quiz answers now randomized per question; fallback also randomized.
+
+### 9.7 Remaining known issues
+- If a response is still truncated at the 8192 cap (very large documents), the call
+  fails with a clean "stopped early" message + Retry rather than a parse crash.
+- README/STATUS previously referenced OpenRouter; README updated to reflect the
+  Gemini REST backend.
+- `GEMINI_DEBUG` logging is off by default; enable only for raw-response inspection.
+
+---
+
+## 10. Session: 2026-07-14 (later) — Deployment Preparation (Vercel + Render + Atlas)
+
+> **Scope (this session):** deployment-only changes. No business logic, UI,
+> schema, auth, or LangGraph changes.
+
+### 10.1 Goal
+Prepare the app for production: Frontend → Vercel, Backend → Render,
+Database → MongoDB Atlas, AI → Google Gemini.
+
+### 10.2 Files modified / created
+
+| File | Change |
+|------|--------|
+| `client/src/services/api.js` | `API_BASE` now uses `VITE_API_URL` (falls back to `/api` for the dev proxy). Removes hardcoded localhost in production. |
+| `client/vercel.json` | **New.** `framework: vite` + SPA rewrite `/ (.*)` → `/index.html` so routes work after refresh. |
+| `client/package.json` | Added `engines.node >= 18`. |
+| `server/middleware/upload.js` | `fs.mkdirSync(uploadDir, { recursive: true })` so the uploads dir exists at runtime on Render. |
+| `server/config/db.js` | Added `serverSelectionTimeoutMS` / `socketTimeoutMS` (30s) and up to 5 connection retries. |
+| `server/index.js` | CORS now an allowlist (`CLIENT_URL` + localhost 5173/5174); unknown origins rejected. (Removed a duplicate cors block introduced while editing.) |
+| `server/package.json` | Added `engines.node >= 18`. |
+| `.env.example` | **Updated** with production-ready vars (Atlas URI template, `CLIENT_URL`, `VITE_API_URL`). |
+| `.gitignore` | Un-ignored `.env.example` so the template can be committed. |
+| `README.md` | Added **Deployment** section (architecture, Vercel/Render/Atlas config, env vars, upload limitation, production checklist). |
+
+### 10.3 Exact configuration
+
+**Vercel (frontend)**
+- Framework preset: Vite
+- Build Command: `npm run build`
+- Output Directory: `dist`
+- SPA rewrite (`vercel.json`): `{ "source": "/(.*)", "destination": "/index.html" }`
+- Env: `VITE_API_URL = https://<backend>.onrender.com`
+
+**Render (backend)**
+- Runtime: Node
+- Build Command: `npm install`
+- Start Command: `npm start`
+- Env: `PORT` (auto), `MONGODB_URI`, `JWT_SECRET`, `CLIENT_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_FAST_MODEL`
+- Health check: `GET /api/health`
+
+**MongoDB Atlas**
+- SRV URI in `MONGODB_URI`; DB user read/write; network access `0.0.0.0/0` (or Render IP range).
+
+### 10.4 Production URLs (placeholders)
+- Frontend: `https://ai-learning-coach.vercel.app`
+- Backend: `https://ai-learning-coach-api.onrender.com`
+- API base (frontend→backend): `https://ai-learning-coach-api.onrender.com/api`
+
+### 10.5 Deployment steps (in order)
+1. **MongoDB Atlas:** create cluster, DB user, network access; copy SRV URI.
+2. **Render:** New Web Service → connect repo → Build `npm install`, Start `npm start`.
+   Add backend env vars (incl. `CLIENT_URL` = the Vercel URL, set after step 3).
+3. **Vercel:** Import `client/` → set `VITE_API_URL` = Render URL → deploy.
+4. Set Render `CLIENT_URL` to the Vercel URL; redeploy Render once.
+5. Verify `GET /api/health` returns ok; run the full feature checklist.
+
+### 10.6 How to redeploy
+- Frontend: push to the connected Git branch (Vercel auto-deploys) or "Redeploy" in Vercel.
+- Backend: push to the connected Git branch (Render auto-deploys) or "Manual Deploy" in Render.
+- After either redeploy, confirm `GET /api/health` and that `CLIENT_URL`/`VITE_API_URL` are still set.
+
+### 10.7 Troubleshooting
+- **CORS error in browser:** ensure Render `CLIENT_URL` exactly equals the Vercel origin (no trailing slash) and Vercel `VITE_API_URL` equals the Render origin. Unknown origins are rejected by design.
+- **Health check fails / 502:** backend not started — check Render logs for "MongoDB connected" / "server running"; verify `MONGODB_URI` and Atlas network access.
+- **Upload 500 (ENOENT):** uploads dir missing — fixed by `mkdirSync` at runtime; ensure the service has write permission to its workdir.
+- **AI calls fail:** verify `GEMINI_API_KEY`; check Render logs for Gemini errors. `GEMINI_DEBUG=true` logs raw responses.
+- **Refresh on a sub-route 404s:** confirm `vercel.json` SPA rewrite is deployed.
+
+### 10.8 Production checklist
+- [x] `npm install` + `vite build` succeed locally (verified)
+- [x] No `localhost` hardcoded in client source (dev proxy only)
+- [x] API base URL driven by `VITE_API_URL`
+- [x] CORS restricted to known origins
+- [x] `.env` git-ignored; `.env.example` is a placeholder template
+- [x] Uploads dir created at runtime
+- [x] Mongo connection retries + timeouts
+- [ ] Set real production env vars in Vercel/Render dashboards
+- [ ] Atlas network access + user permissions
+- [ ] Confirm `GET /api/health` returns ok after deploy
+
+### 10.9 Remaining production risks
+- **Ephemeral uploads on Render:** raw uploaded files are not persisted across
+  redeploys. Safe here because files are extracted immediately and text is stored
+  in MongoDB; the raw file is never re-served. If future features must retain/
+  re-serve originals, migrate to object storage (Cloudinary / S3 / UploadThing).
+- **No rate limiting / WAF** beyond CORS; consider adding if exposed publicly.
+- **`GEMINI_DEBUG`** must stay `false` in production to avoid logging raw content.
+
+---
+
+## 11. Session: 2026-07-14 (later) — Request Cancellation + Session-Load Resilience
+
+> **Scope:** frontend only. No backend, schema, route, or AI-workflow changes.
+
+### 11.1 Problems
+1. AI requests (Generate Quiz, Flashcards, Summary, Study Plan, Explain, …)
+   could not be cancelled on navigation/refresh/another action; in-flight
+   requests kept running, state updated after unmount, and partial results
+   could be observed.
+2. `GET /api/learning/session/:id` failed with `ECONNRESET` / `ECONNREFUSED`
+   when the backend restarted (dev `node --watch` reload or a transient crash),
+   instead of riding out the brief restart.
+
+### 11.2 Root causes
+1. `client/src/services/api.js` used `fetch` with **no `AbortController`**; callers
+   had no way to cancel and the UI could not ignore post-unmount results.
+2. `request()` failed on the **first** connection error and surfaced it
+   immediately. A dev-server restart drops in-flight sockets, so a session GET
+   fired during that window failed permanently.
+
+### 11.3 Files modified
+| File | Change |
+|------|--------|
+| `client/src/services/api.js` | `request()` now accepts `signal`; detects `AbortError` and throws a cancellation-marked error (not retried/reported); GET requests retry transient `ECONNRESET`/`ECONNREFUSED`/`Failed to fetch` up to 3× (backoff). All `api.*` methods accept an optional `signal`. |
+| `client/src/pages/SessionDetail.jsx` | Added `mountedRef` + `abortRef`; `runAction` aborts the previous request and passes a fresh `signal`; unmount aborts all; cancellations ignored; state updates guarded by `mountedRef`. `fetchSession` uses the signal. |
+| `client/src/pages/Quiz.jsx` | Same pattern: abort/mount refs; quiz GET, Explain, and Submit pass a signal; cancellations ignored; state updates guarded. |
+
+### 11.4 Exact changes
+- `request(path, options)`: loops up to `MAX_RETRIES` (3 for GET, 0 for POST);
+  on `AbortError`/`isCanceled` it breaks and rethrows the cancellation (no
+  report); on transient network error for a GET it waits `500*(attempt+1)` ms and
+  retries; otherwise it throws a clear error (server-unreachable message when
+  `res` is undefined, otherwise the API error with its `status`).
+- Components own an `AbortController` in a ref; `runAction`/handlers abort the
+  prior controller before starting, pass `controller.signal` to the API call,
+  and the unmount effect calls `abortRef.current.abort()`.
+
+### 11.5 Why it works
+- **Cancellation:** aborting the `fetch` `signal` rejects the promise; the UI
+  treats `AbortError` as expected and skips state updates + toasts. Starting a
+  new action aborts the previous one, so Gemini calls stop and duplicate
+  requests are prevented (backed by the backend `withInFlightLock`).
+- **No post-unmount updates:** `mountedRef` guards every `setState` so navigating
+  away mid-request can't trigger React warnings or stale renders.
+- **Session-load resilience:** a GET that hits a restarting backend retries with
+  backoff; once the server is listening again the request succeeds. The error is
+  still surfaced (not hidden) if the server stays down after 3 attempts.
+- **Partial results not saved:** handlers only persist results in `onSuccess`
+  (guarded by `mountedRef`), so an aborted/cancelled request never writes state.
+
+### 11.6 Verification
+- `vite build` succeeds.
+- `request()` retry/abort logic verified by reading the control flow; GET retries
+  transient errors, POST never retries, AbortError breaks without report.
+
+---
+
+## 12. Session: 2026-07-14 — Gemini Free-Tier Call Minimization (pre-deploy pass)
+
+> **Trigger:** logs showed frequent `Gemini free-tier rate limit reached`
+> (HTTP 429) and the parser error was a *side effect* of that, not the root
+> cause. The app was making too many Gemini requests per learning session. This
+> pass minimizes API calls, input tokens, and latency, and handles 429s
+> gracefully — without modifying routes, MongoDB schemas, auth, LangGraph graph
+> structure, or the React client.
+
+### 12.1 Findings (before this pass)
+
+Inventory of Gemini calls triggered by each user action:
+
+| User action | Calls | Problem |
+|-------------|-------|---------|
+| Enter Topic / Upload / Paste / YouTube | 1 (Analyzer) | fine; already cached on session |
+| Generate Quiz | 1 (QuizGenerator; planner local) | fine; cached |
+| Generate Flashcards | 1 (Flashcards) | fine; cached |
+| Generate Summary | 1 (Summary) | **redundant** — analyzer already produced `session.summary` during analysis |
+| Generate Study Plan | 1 (StudyPlanner) | fine; cached |
+| Submit Quiz | 1 (Evaluator) | necessary (per submission) |
+| Explain Answer | 1 **per click** | **not cached, not deduped** |
+| Retries | up to **4**/request on 5xx, up to **3** on 429 | **nested** — `gemini.js` retries *and* `analyzer.js`/`quiz.js` had their own `tryCall` loops |
+
+The biggest waste: (a) `generateSummary` re-calling Gemini although the analyzer
+had already written a summary, (b) every Explain click burning a call, and
+(c) nested retry loops multiplying calls during quota pressure.
+
+### 12.2 Files modified
+
+| File | Change |
+|------|--------|
+| `server/ai/utils/gemini.js` | **429 retries 2 → 1**, backoff capped at 15s (one polite retry, then throw friendly 429 for the client Retry button). Retries now live **only** here — centralized. |
+| `server/ai/agents/analyzer.js` | Removed the nested `tryCall` retry loop; now a single `callAndParse`. Added a temporary `perf` tracer around prompt-build vs Gemini. |
+| `server/ai/agents/quiz.js` | Removed the nested `tryCall` loop; relies on `gemini.js` for retries. Deterministic fallback preserved. |
+| `server/controllers/learningController.js` | `analyzeSession` wrapped in `withInFlightLock(\`analyze:${session._id}:${mode}\`)` so a duplicate submit / overlapping reanalyze reuses the single in-flight analysis. Added a temporary `LATENCY_DEBUG` tracer (extraction + analysis stages). |
+| `server/controllers/aiController.js` | `generateSummary` **reuses `session.summary`** (no Gemini call) when present and not Regenerate. `explainAnswer` cached + deduped via `explainCache` + `withInFlightLock`. |
+| `server/ai/utils/explainCache.js` | **New.** In-memory cache for Explain results, keyed by `question :: correctAnswer :: userAnswer`, bounded to 500 entries. |
+| `server/ai/utils/perf.js` | **New.** Temporary latency tracer, off unless `LATENCY_DEBUG=true`. |
+| `server/ai/prompts/quiz.js` | Reference-content slice 3500 → **2000** chars. |
+| `server/ai/prompts/explain.js` | Flashcards slice 3000 → **1500**; Summary slice 3500 → **2000**. |
+
+> Refinement to earlier §4 slice sizes: Quiz 3500→2000, Flashcards 3000→1500,
+> Summary 3500→2000 (topics already focus the model, so the large dumps were
+> mostly redundant).
+
+> Correction to earlier §5: it stated "429 stops immediately (no retry)". In the
+> running code the wrapper actually retried 429 **twice** (8s + 16s). This pass
+> changes that to a **single** capped backoff retry (≤15s) to satisfy the
+> "implement exponential backoff" + "allow Retry" requirement while staying
+> non-aggressive. A second consecutive 429 throws the friendly error.
+
+### 12.3 Call count — before → after
+
+| Feature | Before | After |
+|---------|--------|-------|
+| Analysis | 1 | 1 (in-flight deduped) |
+| Generate Quiz | 1 | 1 (cached) |
+| Generate Flashcards | 1 | 1 (cached) |
+| Generate Summary | 1 | **0** (reuses analyzer summary) |
+| Generate Study Plan | 1 | 1 (cached) |
+| Submit Quiz | 1 | 1 |
+| Explain Answer | 1 / click | **1 first, 0 after** (cached + deduped) |
+| Max calls per errored request | up to 4 (5xx), 3 (429) | **≤ 2** (no nesting) |
+
+Minimum full session: **6 → 5** mandatory calls; Summary is now free, and
+repeated Explains are free after the first.
+
+### 12.4 Estimated reductions
+
+- **API usage:** mandatory set −14% (6→5). Summary eliminated (~1 call/session).
+  Explain 5 clicks → 1 (~80% on explain-heavy use). Retry storms 3–4 → 2 calls
+  per request under quota pressure (33–50% less). Blended realistic session
+  (analyze + quiz + flashcards + summary + study plan + submit + 3 explains)
+  goes **~9 → ~6 calls (~33%)**, more in rate-limited windows.
+- **Latency:** Summary instant (no network) when reusing analyzer summary;
+  Explain instant on cache hit; ~30–40% less input text on quiz/flashcards/
+  summary calls; worst-case 429 wait is now one bounded backoff instead of
+  escalating 8s+16s waits.
+
+### 12.5 How to verify the bottleneck (temporary)
+
+```bash
+LATENCY_DEBUG=true npm run dev:server
+```
+
+Logs (`[PERF analyze:…]`, `[PERF analyzer:…]`, `[PERF extract:…]`) show
+extraction / prompt-build / Gemini / save timings. **Remove these tracer calls
+once measured** — they are marked `TEMPORARY` and are off unless the env var is
+set.
+
+### 12.6 Verification performed
+- `node --check` passed on every modified file.
+- Built-in test runner: `node --test tests/fallback.test.js` → 2/2 pass
+  (`callAndParse` throws cleanly on failure; returns explicit fallback).
+- No nested retries remain: `grep` confirms `tryCall` is gone and `isRateLimit`
+  is only referenced inside `gemini.js` / `jsonParser.js`.
+- Architecture, routes, schemas, auth, and LangGraph graph structure: **unchanged**.

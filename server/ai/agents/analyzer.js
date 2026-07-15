@@ -1,32 +1,22 @@
 import { callAndParse } from '../utils/jsonParser.js';
-import { isRateLimit } from '../utils/gemini.js';
 import { buildAnalyzerPrompt } from '../prompts/analyzer.js';
+import { createTracer } from '../utils/perf.js';
 import { normalizeDifficulty, normalizeString, normalizeStringArray, normalizeTopicObjects } from '../utils/validation.js';
 
-async function tryCall(messages, attempts = 2, delayMs = 500, agentName = 'AI Agent') {
-  let lastErr;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await callAndParse(messages, { agentName });
-    } catch (err) {
-      lastErr = err;
-      // Never retry a rate limit — stop immediately.
-      if (isRateLimit(err) || i >= attempts - 1) {
-        break;
-      }
-      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
-    }
-  }
-  throw lastErr;
-}
-
+// All retries (transient 5xx/timeout and the single polite 429 backoff) are
+// handled centrally in gemini.js via callAndParse. We make exactly ONE attempt
+// here so requests are never retried in nested layers (which multiplied the
+// number of Gemini calls a single user action could trigger).
 export async function runAnalyzerAgent({ content, title, subject, mode = 'analyze' }) {
+  const tracer = createTracer(`analyzer:${title}`);
   console.log('[DEBUG analyzer] input content length =', content ? content.length : 0, '| mode =', mode);
   const messages = buildAnalyzerPrompt(content, title, subject, mode);
   console.log('[DEBUG analyzer] prompt input length =', JSON.stringify(messages).length);
+  tracer.step('prompt built');
 
   try {
-    const analysisRaw = await tryCall(messages, 2, 700, 'Analyzer');
+    const analysisRaw = await callAndParse(messages, { agentName: 'Analyzer' });
+    tracer.step('gemini returned');
     console.log('[DEBUG analyzer] parsed JSON =', JSON.stringify(analysisRaw).slice(0, 800));
     const analysis = analysisRaw || {};
 

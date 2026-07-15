@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useToast } from '../components/Toast';
@@ -17,14 +17,30 @@ export default function Quiz() {
   const [explanation, setExplanation] = useState(null);
   const [explaining, setExplaining] = useState(false);
 
+  // Cancel in-flight requests on unmount/route change; prevent state updates
+  // after unmount.
+  const mountedRef = useRef(true);
+  const abortRef = useRef(new AbortController());
+
   useEffect(() => {
-    api.quiz.get(id)
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    api.quiz.get(id, abortRef.current.signal)
       .then(({ quiz: q }) => {
+        if (!mountedRef.current) return;
         setQuiz(q);
         setAnswers(q.questions.map(() => ({ userAnswer: '' })));
       })
-      .catch((err) => notify({ type: 'error', title: 'Could not load quiz', message: err.message }))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (err?.name === 'AbortError' || err?.isCanceled) return;
+        if (mountedRef.current) notify({ type: 'error', title: 'Could not load quiz', message: err.message });
+      })
+      .finally(() => { if (mountedRef.current) setLoading(false); });
   }, [id, notify]);
 
   const question = quiz?.questions[current];
@@ -38,6 +54,8 @@ export default function Quiz() {
   const handleExplain = useCallback(async () => {
     if (!answers[current]?.userAnswer || explaining) return;
     setExplaining(true);
+    abortRef.current?.abort();
+    const signal = (abortRef.current = new AbortController()).signal;
     try {
       const res = await withLoading('Generating explanation…', () =>
         api.ai.explain({
@@ -45,10 +63,13 @@ export default function Quiz() {
           userAnswer: answers[current].userAnswer,
           correctAnswer: question.correctAnswer,
           options: question.options,
-        }),
+        }, signal),
       );
+      if (!mountedRef.current) return;
       setExplanation(res.explanation);
     } catch (err) {
+      if (err?.name === 'AbortError' || err?.isCanceled) return;
+      if (!mountedRef.current) return;
       notify({
         type: 'error',
         title: 'Could not explain answer',
@@ -56,13 +77,15 @@ export default function Quiz() {
         action: { label: 'Retry', onClick: handleExplain },
       });
     } finally {
-      setExplaining(false);
+      if (mountedRef.current) setExplaining(false);
     }
   }, [answers, current, explaining, question, notify, withLoading]);
 
   const handleSubmit = async () => {
     if (submitting) return;
     setSubmitting(true);
+    abortRef.current?.abort();
+    const signal = (abortRef.current = new AbortController()).signal;
     try {
       const timeTaken = Math.round((Date.now() - startTime) / 1000);
       const result = await withLoading('Evaluating your answers…', () =>
@@ -70,10 +93,13 @@ export default function Quiz() {
           quizId: id,
           answers,
           timeTaken,
-        }),
+        }, signal),
       );
+      if (!mountedRef.current) return;
       navigate(`/quiz/${id}/result`, { state: { result } });
     } catch (err) {
+      if (err?.name === 'AbortError' || err?.isCanceled) return;
+      if (!mountedRef.current) return;
       notify({
         type: 'error',
         title: 'Could not submit quiz',
@@ -81,7 +107,7 @@ export default function Quiz() {
         action: { label: 'Retry', onClick: handleSubmit },
       });
     } finally {
-      setSubmitting(false);
+      if (mountedRef.current) setSubmitting(false);
     }
   };
 

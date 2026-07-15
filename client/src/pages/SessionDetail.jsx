@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useToast } from '../components/Toast';
@@ -20,14 +20,28 @@ export default function SessionDetail() {
   const [studyPlan, setStudyPlan] = useState(null);
   const [questionCount, setQuestionCount] = useState(5);
 
+  // Cancel in-flight requests on unmount/route change and prevent state
+  // updates after unmount.
+  const mountedRef = useRef(true);
+  const abortRef = useRef(new AbortController());
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const fetchSession = useCallback(async () => {
     try {
-      const { session: s } = await api.learning.session(id);
+      const { session: s } = await api.learning.session(id, abortRef.current.signal);
+      if (!mountedRef.current) return;
       setSession(s);
     } catch (err) {
+      if (err?.name === 'AbortError' || err?.isCanceled) return;
       console.error(err);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }, [id]);
 
@@ -53,13 +67,23 @@ export default function SessionDetail() {
   }, [session, summary, flashcards]);
 
   // Run an AI action behind the global loading bar; on failure, show a toast
-  // with an inline Retry button (and never a raw browser alert).
+  // with an inline Retry button (and never a raw browser alert). The in-flight
+  // request is aborted (a) when a new action starts, and (b) on unmount.
   const runAction = useCallback(
     async ({ label, fn, onSuccess, errorTitle }) => {
+      // Cancel any previously running AI request before starting a new one.
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       try {
-        const result = await withLoading(label, fn);
+        const result = await withLoading(label, () => fn(controller.signal));
+        if (!mountedRef.current) return;
         onSuccess?.(result);
       } catch (err) {
+        // Cancellations (navigation / new action) are expected — ignore them.
+        if (err?.name === 'AbortError' || err?.isCanceled) return;
+        if (!mountedRef.current) return;
         notify({
           type: 'error',
           title: errorTitle || 'Could not complete this action',
@@ -79,10 +103,10 @@ export default function SessionDetail() {
     setQuizLoading(true);
     runAction({
       label: regenerate ? 'Regenerating your quiz…' : 'Generating your quiz…',
-      fn: () => api.quiz.generate({ sessionId: id, questionCount, regenerate }),
+      fn: (signal) => api.quiz.generate({ sessionId: id, questionCount, regenerate }, signal),
       onSuccess: ({ quiz }) => navigate(`/quiz/${quiz._id}`),
       errorTitle: 'Quiz generation failed',
-    }).finally(() => setQuizLoading(false));
+    }).finally(() => { if (mountedRef.current) setQuizLoading(false); });
   };
 
   const handleFlashcards = (regenerate = false) => {
@@ -90,10 +114,10 @@ export default function SessionDetail() {
     setFlashcardsLoading(true);
     runAction({
       label: regenerate ? 'Regenerating flashcards…' : 'Generating flashcards…',
-      fn: () => api.ai.flashcards({ sessionId: id, regenerate, count: 5 }),
+      fn: (signal) => api.ai.flashcards({ sessionId: id, regenerate, count: 5 }, signal),
       onSuccess: ({ flashcards: fc }) => setFlashcards(fc),
       errorTitle: 'Flashcard generation failed',
-    }).finally(() => setFlashcardsLoading(false));
+    }).finally(() => { if (mountedRef.current) setFlashcardsLoading(false); });
   };
 
   const handleSummary = (regenerate = false) => {
@@ -101,10 +125,10 @@ export default function SessionDetail() {
     setSummaryLoading(true);
     runAction({
       label: regenerate ? 'Regenerating summary…' : 'Generating summary…',
-      fn: () => api.ai.summary({ sessionId: id, regenerate }),
+      fn: (signal) => api.ai.summary({ sessionId: id, regenerate }, signal),
       onSuccess: ({ summary: s }) => setSummary(s),
       errorTitle: 'Summary generation failed',
-    }).finally(() => setSummaryLoading(false));
+    }).finally(() => { if (mountedRef.current) setSummaryLoading(false); });
   };
 
   const handleStudyPlan = (regenerate = false) => {
@@ -112,10 +136,10 @@ export default function SessionDetail() {
     setStudyPlanLoading(true);
     runAction({
       label: regenerate ? 'Regenerating study plan…' : 'Generating study plan…',
-      fn: () => api.ai.studyPlan({ sessionId: id, regenerate }),
+      fn: (signal) => api.ai.studyPlan({ sessionId: id, regenerate }, signal),
       onSuccess: ({ studyPlan: sp }) => setStudyPlan(sp),
       errorTitle: 'Study plan generation failed',
-    }).finally(() => setStudyPlanLoading(false));
+    }).finally(() => { if (mountedRef.current) setStudyPlanLoading(false); });
   };
 
   if (loading) {

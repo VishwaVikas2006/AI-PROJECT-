@@ -26,6 +26,27 @@ if (!process.env.GEMINI_API_KEY) {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// CORS: allow the deployed Vercel frontend (CLIENT_URL) and local dev origins.
+// Unknown origins are rejected (no Access-Control-Allow-Origin reflected).
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'http://localhost:5173',
+  'http://localhost:5174',
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        cb(null, true);
+      } else {
+        cb(null, false);
+      }
+    },
+    credentials: true,
+  })
+);
+
 // Crash-proofing: keep the server process alive across unexpected async errors.
 // An unhandled rejection would otherwise terminate the process, dropping every
 // in-flight connection (the "ECONNRESET" the proxy reported). We log the error,
@@ -41,12 +62,6 @@ process.on('uncaughtException', (err) => {
 app.keepAliveTimeout = 65000;
 app.headersTimeout = 70000;
 
-app.use(
-  cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    credentials: true,
-  })
-);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 

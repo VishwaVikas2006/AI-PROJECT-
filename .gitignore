@@ -6,7 +6,6 @@ uploads/*
 .env
 *.log
 .DS_Store
-.env.example
 # Dependencies
 node_modules/
 

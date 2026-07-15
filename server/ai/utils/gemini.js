@@ -225,12 +225,14 @@ async function sendGeminiRequest(messages, options) {
   });
 
   try {
+    const t0 = Date.now();
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+    if (isDebug()) log('Gemini request duration', { durationMs: Date.now() - t0, status: response.status });
 
     if (!response.ok) {
       const errText = await response.text();
@@ -270,7 +272,8 @@ async function sendGeminiRequest(messages, options) {
 }
 
 // Retry ONCE for transient failures (5xx / network / timeout).
-// Rate limits (429) are NOT retried — see isRateLimit and the 429 branch above.
+// Rate limits (429) are retried at most once with a polite, capped backoff —
+// see MAX_RATELIMIT_RETRIES below. We never hammer the Free Tier.
 function isTransient(err) {
   if (!err || typeof err.message !== 'string') return false;
   return (
@@ -302,6 +305,15 @@ async function callWithRetry(messages, options) {
   let truncationTries = 0;
   const MAX_TRUNCATION_TRIES = 3;
 
+  // Rate-limit handling: back off ONCE with a polite, capped exponential delay
+  // and retry a single time. We deliberately do NOT aggressively retry 429s —
+  // the Free Tier quota is usually still exhausted seconds later, so extra calls
+  // just burn more quota. If the single retry still hits the limit, we throw the
+  // friendly 429 error and let the CLIENT offer a manual Retry button. The
+  // process never crashes on a 429.
+  let rateLimitTries = 0;
+  const MAX_RATELIMIT_RETRIES = 1;
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await sendGeminiRequest(messages, { ...options, maxTokens });
@@ -316,6 +328,17 @@ async function callWithRetry(messages, options) {
         truncationTries += 1;
         log('Output truncated — retrying with larger token budget', { truncationTries, maxTokens });
         attempt -= 1; // do not consume a transient attempt
+        continue;
+      }
+
+      // Rate limit: back off once (capped at 15s) and retry exactly once.
+      // A second consecutive 429 is thrown so the client can surface Retry.
+      if (isRateLimit(err) && rateLimitTries < MAX_RATELIMIT_RETRIES) {
+        rateLimitTries += 1;
+        const base = Math.min(err.retryAfter || 8, 15);
+        const waitMs = base * 1000 * rateLimitTries;
+        log('Rate limited — single polite backoff before one retry', { rateLimitTries, waitMs });
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
         continue;
       }
 

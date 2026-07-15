@@ -32,7 +32,7 @@ Each: {"question":"short question","answer":"1-2 sentence answer","topic":"..."}
 No one-word answers. Return JSON: {"flashcards":[...]}. Keep under ~600 tokens.
 
 Content:
-${content?.slice(0, 3000) || 'General knowledge'}`,
+${content?.slice(0, 1500) || 'General knowledge'}`,
     },
   ];
 }
@@ -56,7 +56,7 @@ export function buildSummaryPrompt({ content, title }) {
 Use bullet points, not paragraphs. Keep the whole response under ~300 tokens.
 
 Content:
-${content?.slice(0, 3500) || ''}`,
+${content?.slice(0, 2000) || ''}`,
     },
   ];
 }

@@ -8,6 +8,9 @@
     "start": "node index.js",
     "dev": "node --watch index.js"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@langchain/core": "^0.3.42",
     "@langchain/langgraph": "^0.2.62",

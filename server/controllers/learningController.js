@@ -3,14 +3,29 @@ import LearningSession from '../models/LearningSession.js';
 import { extractTextFromFile, truncateContent, cleanContent } from '../ai/utils/fileParser.js';
 import { runContentAnalysis } from '../ai/langgraph/graph.js';
 import { fetchYouTubeTranscript } from '../ai/utils/youtubeTranscript.js';
+import { withInFlightLock } from '../ai/utils/requestLock.js';
+import { createTracer } from '../ai/utils/perf.js';
 
 async function analyzeSession(session, content, mode = 'analyze') {
+  // Dedupe: if the same session is analyzed again (duplicate submit, or a
+  // reanalyze fired while one is already running), reuse the SINGLE in-flight
+  // Gemini call instead of launching a second one and wasting Free Tier quota.
+  return withInFlightLock(`analyze:${session._id}:${mode}`, () =>
+    runAnalyzeSession(session, content, mode),
+  );
+}
+
+async function runAnalyzeSession(session, content, mode = 'analyze') {
+  const tracer = createTracer(`analyze:${session._id}`);
   try {
+    tracer.step('start');
+
     console.log('[DEBUG analyzeSession] received content length =', content ? content.length : 0);
     console.log('[DEBUG analyzeSession] first 300 chars =\n', (content || '').slice(0, 300));
     session.analysisStatus = 'processing';
     session.analysisError = undefined;
     await session.save();
+    tracer.step('status=processing saved');
 
     const analysisPromise = runContentAnalysis({
       session,
@@ -24,12 +39,15 @@ async function analyzeSession(session, content, mode = 'analyze') {
       setTimeout(() => resolve({ timedOut: true }), 60000)
     );
 
+    tracer.step('gemini call dispatched');
     const response = await Promise.race([analysisPromise, timeoutPromise]);
+    tracer.step('gemini response received');
 
     if (response.timedOut) {
       session.analysisStatus = 'failed';
       session.analysisError = 'Analysis timed out. Please retry.';
       await session.save();
+      tracer.step('timed out');
       return;
     }
 
@@ -58,10 +76,12 @@ async function analyzeSession(session, content, mode = 'analyze') {
     session.analysisStatus = 'completed';
     session.analysisError = undefined;
     await session.save();
+    tracer.step('status=completed saved');
   } catch (err) {
     session.analysisStatus = 'failed';
     session.analysisError = err.message;
     await session.save();
+    tracer.step(`failed: ${err.message}`);
   }
 }
 
@@ -75,14 +95,17 @@ export async function uploadContent(req, res, next) {
     const subject = req.body.subject || 'General';
 
     let content = '';
+    const tracer = createTracer(`extract:${title}`);
     try {
       content = await extractTextFromFile(req.file.path, req.file.originalname);
     } catch (err) {
       return res.status(400).json({ message: err.message });
     }
+    tracer.step('text extracted');
 
     // Strip noise (page numbers, dup lines, blank lines) before storing/sending.
     content = cleanContent(content);
+    tracer.step('cleaned');
 
     const session = await LearningSession.create({
       user: req.userId,

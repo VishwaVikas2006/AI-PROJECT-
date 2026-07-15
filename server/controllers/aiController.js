@@ -6,6 +6,7 @@ import {
 } from '../ai/prompts/explain.js';
 import { runStudyPlannerAgent } from '../ai/agents/studyPlanner.js';
 import { withInFlightLock } from '../ai/utils/requestLock.js';
+import { getExplain, setExplain, explainCacheKey } from '../ai/utils/explainCache.js';
 import LearningSession from '../models/LearningSession.js';
 import StudyPlan from '../models/StudyPlan.js';
 import Progress from '../models/Progress.js';
@@ -18,8 +19,25 @@ export async function explainAnswer(req, res, next) {
       return res.status(400).json({ message: 'Question and correct answer are required' });
     }
 
-    const messages = buildExplainPrompt({ question, userAnswer, correctAnswer, options });
-    const result = await callAndParse(messages);
+    const key = explainCacheKey({ question, correctAnswer, userAnswer });
+
+    // Return a cached explanation without calling Gemini (see explainCache.js).
+    const cached = getExplain(key);
+    if (cached) {
+      return res.json({ explanation: cached });
+    }
+
+    // Dedupe concurrent identical Explain requests so two rapid clicks (or two
+    // learners on the same question) trigger a single Gemini call.
+    const result = await withInFlightLock(`explain:${key}`, async () => {
+      const hit = getExplain(key);
+      if (hit) return hit;
+
+      const messages = buildExplainPrompt({ question, userAnswer, correctAnswer, options });
+      const parsed = await callAndParse(messages);
+      setExplain(key, parsed);
+      return parsed;
+    });
 
     res.json({ explanation: result });
   } catch (err) {
@@ -130,6 +148,15 @@ export async function generateSummary(req, res, next) {
 
     if (!forceRegenerate && session.studySummary) {
       return res.json({ summary: session.studySummary });
+    }
+
+    // Free Tier optimization: the analyzer already produced `session.summary`
+    // during analysis (the same text shown on the session page). Reuse it
+    // instead of spending another Gemini call to regenerate a near-identical
+    // recap. Pressing Regenerate still produces the richer studySummary.
+    if (!forceRegenerate && session.summary) {
+      const reused = normalizeSummaryResult({ quickSummary: session.summary });
+      return res.json({ summary: reused });
     }
 
     const studySummary = await withInFlightLock(`summary:${session._id}:${forceRegenerate}`, async () => {

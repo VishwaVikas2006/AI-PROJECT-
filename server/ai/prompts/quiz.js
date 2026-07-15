@@ -21,7 +21,7 @@ Each question JSON: {"type":"mcq|true_false|coding|short_answer","topic":"...","
 - Keep total response under ~700 tokens.
 
 Reference content:
-${content?.slice(0, 3500) || 'Use general knowledge for these topics.'}`,
+${content?.slice(0, 2000) || 'Use general knowledge for these topics.'}`,
     },
   ];
 }

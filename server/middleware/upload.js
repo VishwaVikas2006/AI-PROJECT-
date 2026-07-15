@@ -1,9 +1,15 @@
 import multer from 'multer';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadDir = path.join(__dirname, '../../uploads');
+
+// Ensure the upload directory exists at runtime. Render's filesystem is
+// ephemeral and the folder may not be present after a deploy/restart, which
+// would otherwise make multer fail with ENOENT on the first upload.
+fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
