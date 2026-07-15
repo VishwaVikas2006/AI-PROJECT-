@@ -513,3 +513,49 @@ If the primary provider fails due to a rate limit (429), quota exhaustion, timeo
 - `parseJSON(truncated)` now repairs and returns a parsed object (was throwing).
 - `parseJSON(plainProviderString)` parses to a structured object with `title`/`topics`.
 - Verified with a real end-to-end pass simulating a Cohere string through `parseJSON`.
+
+### 13.4 Latency fix (this pass) — fast failover on rate limit (429)
+
+> **Scope (this pass):** tuning of retry timing only. No architecture change.
+
+#### 13.4.1 Problem
+When Gemini hit its free-tier quota (HTTP 429), a single request could take
+**~28 seconds** before the manager even tried the next provider. Two retry
+layers were stacking:
+1. `gemini.js` `callWithRetry` did an 8s backoff + one retry on 429.
+2. The manager's `retry.js` `tryProvider` then retried Gemini *again* with an
+   additional 8s delay before giving up and handing off.
+
+A provider's quota does not free up in seconds, so retrying the *same* provider
+on a 429 just wastes time the user is staring at a spinner.
+
+#### 13.4.2 Fix
+- `retry.js` `tryProvider`: a **rate-limit (429)** error now throws immediately
+  instead of retrying the same provider, so the manager falls through to the
+  next provider in the chain (OpenRouter → Cohere → Mistral) at once.
+- `gemini.js` `callWithRetry`: the single 429 backoff is shortened
+  (`8s / 15s cap` → `3s / 10s cap`). This stays for the Gemini-only case (no
+  fallback keys), where a brief backoff can still ride out a transient 429.
+
+Untouched: transient `5xx`/`timeout`/`network` retries (still retry once), and
+the `401`/`402`/`403` → next-provider behavior.
+
+#### 13.4.3 Result
+- Quota-exceeded Gemini now fails over in ~1 call + the short inner backoff
+  (~4s total) instead of ~28s.
+- Verified: `tryProvider` on a 429 makes exactly 1 call and returns in <1s;
+  on 500 it still retries once and succeeds; on 402 it still throws so the
+  manager moves to the next provider.
+
+### 13.5 Reuse / caching (already in place — verified this pass)
+All generated outputs are cached and reused on repeat clicks, so only the
+**first** generation of each feature hits the model:
+- **Flashcards** → `session.flashcards` (instant on 2nd click).
+- **Summary** → reuses the analyzer's `session.summary`; richer `studySummary` cached on `session`.
+- **Study Plan** → cached in the `StudyPlan` collection.
+- **Explain answer** → in-memory `explainCache` (+ in-flight dedup).
+- **Quiz** → cached in the `Quiz` collection.
+- **Analysis** runs only on upload/paste/topic/YouTube, never re-fires.
+
+Because of this, the only unavoidable model latency is the **first** generation
+of each feature; every repeat is free (no token cost, no wait).
