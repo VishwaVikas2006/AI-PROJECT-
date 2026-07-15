@@ -77,7 +77,9 @@ export function parseJSON(text) {
       return JSON.parse(candidate);
     } catch {
       const repaired = tryRepair(candidate);
-      if (repaired !== null) return repaired;
+      if (repaired !== null) {
+        return JSON.parse(repaired);
+      }
     }
   }
 

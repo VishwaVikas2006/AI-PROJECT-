@@ -459,3 +459,23 @@ set.
 - No nested retries remain: `grep` confirms `tryCall` is gone and `isRateLimit`
   is only referenced inside `gemini.js` / `jsonParser.js`.
 - Architecture, routes, schemas, auth, and LangGraph graph structure: **unchanged**.
+
+## 13. AI Provider Abstraction Layer (Added in this pass)
+
+Implemented a robust, modular provider architecture in `server/ai/manager/` and `server/ai/providers/` that safely wraps the existing Gemini implementation.
+
+### 13.1 Fallback Chain
+If the primary provider fails due to a rate limit (429), quota exhaustion, timeout, or a 5xx error, the system will automatically route the request to the next configured provider in the registry. 
+
+**Default Chain:**
+1. **Google Gemini** (Primary, heavily rate-limited in free tier)
+2. **OpenRouter** (Fallback #1: DeepSeek/Qwen/Llama)
+3. **Cohere** (Fallback #2: command-r-plus)
+4. **Mistral AI** (Fallback #3: mistral-small-latest)
+
+*Note: The fallback routing seamlessly handles provider-specific permanent errors (like 401 Unauthorized or 402 Insufficient Credits) by failing over to the next provider instead of aborting the entire request. The system ONLY aborts on explicit AI Safety blocks.*
+
+### 13.2 Architecture
+- **Facade Pattern**: `server/ai/utils/gemini.js` remains the main entry point for LangGraph, controllers, and agents, completely insulating the application layer from the fallback logic. 
+- **Registry**: `server/ai/manager/providerRegistry.js` dynamically boots providers only when their respective API keys are present in `.env`.
+- **Intelligent Routing**: `server/ai/manager/modelSelector.js` automatically assigns the heaviest models (e.g., DeepSeek V3) to complex reasoning tasks (like the `Analyzer` agent) while using faster, lighter models for simple tasks.

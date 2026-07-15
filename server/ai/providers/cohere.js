@@ -17,23 +17,20 @@ export function isAvailable() {
 
 /**
  * Convert internal OpenAI-style messages to Cohere's chat format.
- * Cohere v2 /chat accepts: system (string), messages (role: user|assistant).
+ * Cohere v2 /chat accepts messages with roles: system, user, assistant.
  */
 function convertMessages(messages) {
-  let systemPrompt = '';
   const chatMessages = [];
-
   for (const m of messages) {
     if (m.role === 'system') {
-      systemPrompt += (systemPrompt ? '\n\n' : '') + m.content;
-    } else if (m.role === 'assistant') {
+      chatMessages.push({ role: 'system', content: m.content });
+    } else if (m.role === 'model' || m.role === 'assistant') {
       chatMessages.push({ role: 'assistant', content: m.content });
     } else {
       chatMessages.push({ role: 'user', content: m.content });
     }
   }
-
-  return { systemPrompt, chatMessages };
+  return chatMessages;
 }
 
 function buildPayload(messages, options) {
@@ -54,7 +51,7 @@ function buildPayload(messages, options) {
       ? Number(options.maxTokens)
       : agentTokenBudgets[options.agentName] || 1024;
 
-  const { systemPrompt, chatMessages } = convertMessages(messages);
+  const chatMessages = convertMessages(messages);
 
   const payload = {
     model: options.model || process.env.COHERE_MODEL || DEFAULT_MODEL,
@@ -62,10 +59,6 @@ function buildPayload(messages, options) {
     max_tokens: maxTokens,
     temperature: options.temperature ?? 0.3,
   };
-
-  if (systemPrompt) {
-    payload.system = systemPrompt;
-  }
 
   if (options.json) {
     payload.response_format = { type: 'json_object' };
