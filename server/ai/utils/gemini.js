@@ -308,12 +308,13 @@ async function callWithRetry(messages, options) {
   let truncationTries = 0;
   const MAX_TRUNCATION_TRIES = 3;
 
-  // Rate-limit handling: back off ONCE with a polite, capped exponential delay
-  // and retry a single time. We deliberately do NOT aggressively retry 429s —
-  // the Free Tier quota is usually still exhausted seconds later, so extra calls
-  // just burn more quota. If the single retry still hits the limit, we throw the
-  // friendly 429 error and let the CLIENT offer a manual Retry button. The
-  // process never crashes on a 429.
+  // Rate-limit handling: back off ONCE with a short, capped delay and retry a
+  // single time. This exists mainly for the Gemini-only (no fallback) case,
+  // where a brief backoff can ride out a transient 429. When fallback providers
+  // are configured, the manager's retry.js throws the 429 immediately so it can
+  // fail over to the next provider instead of waiting — so this inner backoff
+  // only runs once before the manager hands off. We keep it short (≤10s) so
+  // quota-exceeded requests fail over fast. The process never crashes on a 429.
   let rateLimitTries = 0;
   const MAX_RATELIMIT_RETRIES = 1;
 
@@ -334,13 +335,13 @@ async function callWithRetry(messages, options) {
         continue;
       }
 
-      // Rate limit: back off once (capped at 15s) and retry exactly once.
+      // Rate limit: back off once (capped at 10s) and retry exactly once.
       // A second consecutive 429 is thrown so the client can surface Retry.
       if (isRateLimit(err) && rateLimitTries < MAX_RATELIMIT_RETRIES) {
         rateLimitTries += 1;
-        const base = Math.min(err.retryAfter || 8, 15);
+        const base = Math.min(err.retryAfter || 3, 10);
         const waitMs = base * 1000 * rateLimitTries;
-        log('Rate limited — single polite backoff before one retry', { rateLimitTries, waitMs });
+        log('Rate limited — single short backoff before one retry', { rateLimitTries, waitMs });
         await new Promise((resolve) => setTimeout(resolve, waitMs));
         continue;
       }

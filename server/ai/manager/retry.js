@@ -11,7 +11,6 @@
 
 const MAX_SAME_PROVIDER_RETRIES = 1; // One retry per provider before moving on
 const RETRY_DELAY_BASE_MS = 800;
-const RATELIMIT_DELAY_MS = 8000; // Polite backoff for 429
 
 /**
  * Errors that should cause an immediate move to the next provider
@@ -108,11 +107,18 @@ export async function tryProvider(providerEntry, messages, options, model, log) 
         throw err;
       }
 
+      // Rate-limited (429 / quota) on THIS provider: do NOT retry it. Its quota
+      // won't free up within seconds, and each provider has its own quota, so
+      // the right move is to fall through to the next provider immediately.
+      // This prevents the nested backoff that previously made a quota-exceeded
+      // request wait 20s+ on Gemini before any fallback was even attempted.
+      if (isRateLimitError(err)) {
+        throw err;
+      }
+
       if (attempt > MAX_SAME_PROVIDER_RETRIES) break; // retries exhausted
 
-      const delay = isRateLimitError(err)
-        ? Math.min(err.retryAfter ? err.retryAfter * 1000 : RATELIMIT_DELAY_MS, 15000)
-        : RETRY_DELAY_BASE_MS * attempt;
+      const delay = RETRY_DELAY_BASE_MS * attempt;
 
       console.log(
         `[AIManager] ${providerName} attempt ${attempt} failed (${err.message?.slice(0, 80)}). Retrying in ${delay}ms...`,
