@@ -126,9 +126,8 @@ export async function generateText(messages, options = {}) {
       throw new Error('OpenRouter returned empty content');
     }
 
-    // Attach metadata for manager logging
-    const meta = { latencyMs, model, tokens: data.usage };
-    return Object.assign(content, { _providerMeta: meta });
+    // Return the raw content string so jsonParser.js can parse it as JSON.
+    return content;
   } catch (err) {
     if (err.name === 'AbortError') {
       throw new Error('OpenRouter request timed out.');

@@ -102,9 +102,7 @@ export async function generateText(messages, options = {}) {
       throw new Error('Mistral returned empty content');
     }
 
-    return Object.assign(content, {
-      _providerMeta: { latencyMs, model: payload.model, tokens: data.usage },
-    });
+    return content;
   } catch (err) {
     if (err.name === 'AbortError') {
       throw new Error('Mistral request timed out.');

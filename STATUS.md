@@ -479,3 +479,37 @@ If the primary provider fails due to a rate limit (429), quota exhaustion, timeo
 - **Facade Pattern**: `server/ai/utils/gemini.js` remains the main entry point for LangGraph, controllers, and agents, completely insulating the application layer from the fallback logic. 
 - **Registry**: `server/ai/manager/providerRegistry.js` dynamically boots providers only when their respective API keys are present in `.env`.
 - **Intelligent Routing**: `server/ai/manager/modelSelector.js` automatically assigns the heaviest models (e.g., DeepSeek V3) to complex reasoning tasks (like the `Analyzer` agent) while using faster, lighter models for simple tasks.
+
+### 13.3 Bug fix (this pass) — fallback-provider responses were never parsed as JSON
+
+> **Scope (this pass):** two surgical fixes in the AI provider layer. No architecture,
+> routes, schemas, auth, or LangGraph changes.
+
+#### 13.3.1 Symptoms
+- Even when the fallback chain reached a working provider (e.g. Gemini → OpenRouter
+  `402` → Cohere success), the generated content arrived **empty / garbled** in the UI
+  — i.e. the request "succeeded" but the app showed broken/placeholder output.
+- Truncated JSON surfaced as `"[object Object]" is not valid JSON` instead of being
+  repaired.
+
+#### 13.3.2 Root causes
+1. **Wrong return type from fallback providers.** `cohere.js`, `mistral.js`, and
+   `openrouter.js` returned `Object.assign(content, { _providerMeta: … })`. Because
+   `Object.assign` over a string primitive yields a `String` **object** (not a string),
+   `jsonParser.parseJSON`'s guard `if (typeof text !== 'string') return text;` returned
+   the value **unparsed**. Every agent's validation then failed and the degenerate
+   fallback object was returned. (The attached `_providerMeta` was never read by the
+   manager — it logs latency itself — so it was dead data carrying the bug.)
+2. **Double-parse in truncation repair.** `tryRepair()` already returns a *parsed
+   object*, but `parseJSON` then ran `JSON.parse(repaired)` on that object, throwing
+   for any provider that lacks truncation detection (all fallbacks).
+
+#### 13.3.3 Fix
+- Providers now `return content;` (a plain string) — drop the `Object.assign` wrapper.
+- `parseJSON` returns the object `tryRepair()` already produces (`return repaired;`).
+
+#### 13.3.4 Verification
+- `node --check` passes on all four changed files.
+- `parseJSON(truncated)` now repairs and returns a parsed object (was throwing).
+- `parseJSON(plainProviderString)` parses to a structured object with `title`/`topics`.
+- Verified with a real end-to-end pass simulating a Cohere string through `parseJSON`.

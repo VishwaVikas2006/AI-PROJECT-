@@ -78,7 +78,8 @@ export function parseJSON(text) {
     } catch {
       const repaired = tryRepair(candidate);
       if (repaired !== null) {
-        return JSON.parse(repaired);
+        // tryRepair already returns a parsed object (or null), so return it as-is.
+        return repaired;
       }
     }
   }
