@@ -205,7 +205,10 @@ async function parseGeminiResponse(response) {
   return content;
 }
 
-async function sendGeminiRequest(messages, options) {
+// Exported so providers/gemini.js can use this as its generateText implementation.
+// All internal retry logic (callWithRetry) remains active — the provider adapter
+// calls sendGeminiRequest directly, which is wrapped by callWithRetry below.
+export async function sendGeminiRequest(messages, options) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured');
@@ -351,12 +354,31 @@ async function callWithRetry(messages, options) {
   throw lastError;
 }
 
-// Exported names are intentionally kept identical to the previous OpenRouter
-// wrapper so no caller needs to change.
-export async function callOpenRouter(messages, options = {}) {
+// Exported so providers/gemini.js can invoke the full Gemini retry path
+// (truncation budget escalation + rate-limit backoff) without duplicating logic.
+// This is the internal callWithRetry function made available under a stable name.
+export async function callGeminiWithRetry(messages, options = {}) {
   return callWithRetry(messages, options);
 }
 
-export async function callOpenRouterFast(messages, options = {}) {
-  return callWithRetry(messages, { ...options, fast: true });
+// ── Provider abstraction ─────────────────────────────────────────────────────
+// callOpenRouter / callOpenRouterFast are now routed through aiManager, which
+// tries Gemini first (via providers/gemini.js → callGeminiWithRetry → callWithRetry
+// → sendGeminiRequest) and falls back to OpenRouter / Cohere / Mistral if Gemini
+// is exhausted.
+//
+// All existing callers (jsonParser.js, agents, controllers) continue to import
+// from this file — the interface is 100% backward-compatible.
+//
+// We use a lazy dynamic import to avoid a circular reference at module load time
+// (gemini.js ← providers/gemini.js ← providerRegistry ← aiManager → gemini.js).
+export async function callOpenRouter(messages, options = {}) {
+  const { callOpenRouter: managerCall } = await import('../manager/aiManager.js');
+  return managerCall(messages, options);
 }
+
+export async function callOpenRouterFast(messages, options = {}) {
+  const { callOpenRouterFast: managerCall } = await import('../manager/aiManager.js');
+  return managerCall(messages, { ...options, fast: true });
+}
+
