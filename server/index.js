@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import { connectDB } from './config/db.js';
+import LearningSession from './models/LearningSession.js';
 import authRoutes from './routes/authRoutes.js';
 import learningRoutes from './routes/learningRoutes.js';
 import quizRoutes from './routes/quizRoutes.js';
@@ -88,8 +89,34 @@ app.use((err, _req, res, _next) => {
   res.status(status).json(body);
 });
 
+// Recover sessions stranded in a non-terminal state. The analysis runs in the
+// background (fire-and-forget), so a server restart — e.g. `node --watch`
+// reloading after a file save, or a crash — abandons any in-flight analysis
+// and leaves the session stuck on `processing`/`pending` forever. On boot we
+// flip those to `failed` so the UI can show "Analysis failed — Retry"
+// instead of an endless "AI is analyzing…" spinner.
+async function recoverStuckSessions() {
+  try {
+    const result = await LearningSession.updateMany(
+      { analysisStatus: { $in: ['processing', 'pending'] } },
+      {
+        $set: {
+          analysisStatus: 'failed',
+          analysisError: 'Analysis was interrupted (server restart). Please retry.',
+        },
+      },
+    );
+    if (result.modifiedCount > 0) {
+      console.log(`[recover] Reset ${result.modifiedCount} session(s) left stuck in processing/pending.`);
+    }
+  } catch (err) {
+    console.error('[recover] Could not reset stuck sessions:', err.message);
+  }
+}
+
 async function start() {
   await connectDB();
+  await recoverStuckSessions();
   app.listen(PORT, () => {
     console.log(`AI Learning Coach server running on port ${PORT}`);
   });

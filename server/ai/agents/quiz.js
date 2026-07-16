@@ -129,12 +129,20 @@ export async function runQuizGeneratorAgent({ topics, difficulty, questionCount,
   try {
     const messages = buildQuizPrompt({ topics, difficulty: defaultDifficulty, questionCount: requestedCount, content, subject });
     const result = await callAndParse(messages, { agentName: 'QuizGenerator' });
+    console.log(
+      '[QUIZ AI RESULT]',
+      JSON.stringify(result, null, 2)
+    );
 
     // Gemini may return either a bare array of questions or an object that
-    // wraps them under a "questions" key. Accept both shapes so a valid
-    // response is never mistaken for a failure (which would trigger the
-    // degenerate fallback with identical options on every question).
-    const rawQuestions = Array.isArray(result) ? result : result?.questions;
+    // wraps them under a "questions" key. Other providers sometimes use a
+    // different wrapper key ("quiz", "items", "data"). Accept all equivalent
+    // shapes so a valid response is never mistaken for a failure (which would
+    // trigger the degenerate fallback with identical options on every
+    // question). Validation below remains strict on the question contents.
+    const rawQuestions = Array.isArray(result)
+      ? result
+      : (result?.questions || result?.quiz || result?.items || result?.data);
     if (!Array.isArray(rawQuestions)) {
       throw new Error('Quiz generator returned invalid question set');
     }

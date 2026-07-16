@@ -16,17 +16,17 @@ export function isAvailable() {
 }
 
 function buildPayload(messages, options) {
-  const agentTokenBudgets = {
-    Analyzer: 900,
-    QuizGenerator: 1600,
-    Planner: 500,
-    StudyPlanner: 1200,
-    Evaluator: 1500,
-    Summary: 1200,
-    Flashcards: 1500,
-    Explain: 900,
-    Diagnose: 1200,
-  };
+const agentTokenBudgets = {
+  Analyzer: 500,
+  QuizGenerator: 800,      // 5 questions
+  Planner: 400,
+  StudyPlanner: 700,
+  Evaluator: 700,
+  Summary: 700,
+  Flashcards: 700,         // 8–10 cards
+  Explain: 500,
+  Diagnose: 700,
+};
 
   const maxTokens =
     Number.isFinite(Number(options.maxTokens)) && Number(options.maxTokens) > 0

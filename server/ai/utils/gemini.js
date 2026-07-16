@@ -26,15 +26,15 @@ function getFastModel(options) {
 // and producing the "Unterminated string in JSON" parse errors. If a response
 // is still truncated, callWithRetry escalates the budget (see MAX_OUTPUT_CAP).
 const TOKEN_BUDGETS = {
-  Analyzer: 900, // 4-8 topics + objectives + keywords
-  QuizGenerator: 1600, // exactly 5 questions
-  Planner: 500,
-  StudyPlanner: 1200, // multi-day plan
-  Evaluator: 1500, // per-question feedback
-  Summary: 1200, // concepts + definitions + mistakes + memory tricks
-  Flashcards: 1500, // <=10 cards
-  Explain: 900, // explanation + example + tip
-  Diagnose: 1200,
+  Analyzer: 500,
+  QuizGenerator: 800,      // 5 questions
+  Planner: 400,
+  StudyPlanner: 700,
+  Evaluator: 700,
+  Summary: 700,
+  Flashcards: 700,         // 8–10 cards
+  Explain: 500,
+  Diagnose: 700,
 };
 
 // Hard ceiling for output tokens (gemini-2.0-flash maximum). Truncation retries

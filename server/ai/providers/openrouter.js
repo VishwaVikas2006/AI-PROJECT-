@@ -35,17 +35,17 @@ export function isAvailable() {
  * for role names (system / user / assistant are all valid).
  */
 function buildPayload(messages, options, model) {
-  const agentTokenBudgets = {
-    Analyzer: 900,
-    QuizGenerator: 1600,
-    Planner: 500,
-    StudyPlanner: 1200,
-    Evaluator: 1500,
-    Summary: 1200,
-    Flashcards: 1500,
-    Explain: 900,
-    Diagnose: 1200,
-  };
+const agentTokenBudgets = {
+  Analyzer: 500,
+  QuizGenerator: 800,   // 5 questions are enough
+  Planner: 400,
+  StudyPlanner: 700,
+  Evaluator: 700,
+  Summary: 700,
+  Flashcards: 700,      // 8–10 cards
+  Explain: 500,
+  Diagnose: 700,
+};
 
   const maxTokens =
     Number.isFinite(Number(options.maxTokens)) && Number(options.maxTokens) > 0
@@ -70,6 +70,39 @@ function createTimeout(ms) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   return { controller, timer };
+}
+
+/**
+ * Extract the first valid text response from an OpenRouter payload.
+ * OpenRouter can return several response shapes; do not assume one.
+ */
+function extractContent(data) {
+  if (!data) return '';
+
+  // Shape 1: OpenAI-style chat completions
+  const messageContent = data.choices?.[0]?.message?.content;
+  if (typeof messageContent === 'string' && messageContent.trim()) {
+    return messageContent;
+  }
+  if (Array.isArray(messageContent)) {
+    const textBlock = messageContent.find(
+      (b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.trim()
+    );
+    if (textBlock?.text) return textBlock.text;
+  }
+
+  // Shape 2: completion-style response with top-level text on the choice
+  const choiceText = data.choices?.[0]?.text;
+  if (typeof choiceText === 'string' && choiceText.trim()) {
+    return choiceText;
+  }
+
+  // Shape 3: unified / newer format with a top-level output_text field
+  if (typeof data.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text;
+  }
+
+  return '';
 }
 
 /**
@@ -120,9 +153,13 @@ export async function generateText(messages, options = {}) {
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
+    const content = extractContent(data);
 
     if (!content) {
+      console.log(
+        '[OPENROUTER RESPONSE]',
+        JSON.stringify(data, null, 2)
+      );
       throw new Error('OpenRouter returned empty content');
     }
 

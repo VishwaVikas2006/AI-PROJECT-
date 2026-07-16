@@ -22,21 +22,21 @@ const MODEL_MAP = {
     _fast: process.env.GEMINI_FAST_MODEL || process.env.GEMINI_MODEL || 'gemini-2.0-flash',
   },
 
-  openrouter: {
-    // Use the most capable model for reasoning-heavy tasks.
-    Analyzer:     'deepseek/deepseek-chat-v3-0324',
-    QuizGenerator:'deepseek/deepseek-chat-v3-0324',
-    Evaluator:    'deepseek/deepseek-chat-v3-0324',
-    StudyPlanner: 'qwen/qwen-2.5-72b-instruct',
-    Summary:      'qwen/qwen-2.5-72b-instruct',
-    Flashcards:   'meta-llama/llama-3.3-70b-instruct',
-    Explain:      'meta-llama/llama-3.3-70b-instruct',
-    Planner:      'mistralai/mistral-7b-instruct',
-    _default:     'deepseek/deepseek-chat-v3-0324',
-  },
+ openrouter: {
+    Analyzer:      'openrouter/free',
+    QuizGenerator: 'openrouter/free',
+    Evaluator:     'openrouter/free',
+    StudyPlanner:  'openrouter/free',
+    Summary:       'openrouter/free',
+    Flashcards:    'openrouter/free',
+    Explain:       'openrouter/free',
+    Planner:       'openrouter/free',
+    Diagnose:      'openrouter/free',
+    _default:      'openrouter/free',
+},
 
   cohere: {
-    _default: process.env.COHERE_MODEL || 'command-r-plus',
+    _default: process.env.COHERE_MODEL || 'command-a-03-2025',
   },
 
   mistral: {

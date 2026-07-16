@@ -7,7 +7,9 @@
 
 const COHERE_URL = 'https://api.cohere.com/v2/chat';
 const DEFAULT_TIMEOUT_MS = 30000;
-const DEFAULT_MODEL = 'command-r-plus';
+// NOTE: 'command-r-plus' was removed by Cohere on 2025-09-15 and now
+// returns 404. Use a current model id instead.
+const DEFAULT_MODEL = 'command-a-03-2025';
 
 export const name = 'cohere';
 
@@ -34,17 +36,17 @@ function convertMessages(messages) {
 }
 
 function buildPayload(messages, options) {
-  const agentTokenBudgets = {
-    Analyzer: 900,
-    QuizGenerator: 1600,
-    Planner: 500,
-    StudyPlanner: 1200,
-    Evaluator: 1500,
-    Summary: 1200,
-    Flashcards: 1500,
-    Explain: 900,
-    Diagnose: 1200,
-  };
+const agentTokenBudgets = {
+  Analyzer: 500,
+  QuizGenerator: 800,
+  Planner: 400,
+  StudyPlanner: 700,
+  Evaluator: 700,
+  Summary: 700,
+  Flashcards: 700,
+  Explain: 500,
+  Diagnose: 700,
+};
 
   const maxTokens =
     Number.isFinite(Number(options.maxTokens)) && Number(options.maxTokens) > 0
@@ -117,9 +119,21 @@ export async function generateText(messages, options = {}) {
     }
 
     const data = await response.json();
-    // Cohere v2: message.content is an array of content blocks
+    console.log(
+      '[COHERE RESPONSE]',
+      JSON.stringify(data, null, 2)
+    );
+    // Cohere v2: message.content is an array of content blocks.
+    // Find the FIRST block whose type is "text" — a "thinking" block
+    // must NOT be returned. Future responses may contain multiple blocks.
+    const contentBlocks = Array.isArray(data.message?.content)
+      ? data.message.content
+      : [];
+    const textBlock = contentBlocks.find(
+      (b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.trim()
+    );
     const content =
-      data.message?.content?.[0]?.text ||
+      (textBlock?.text) ||
       data.text || // v1 fallback
       '';
 
