@@ -20,20 +20,23 @@ export default function Quiz() {
   // Cancel in-flight requests on unmount/route change; prevent state updates
   // after unmount.
   const mountedRef = useRef(true);
-  const abortRef = useRef(new AbortController());
+  const loadAbortRef = useRef(new AbortController());
+  const actionAbortRef = useRef(new AbortController());
 
   useEffect(() => {
     mountedRef.current = true;
-    abortRef.current = new AbortController();
+    loadAbortRef.current = new AbortController();
+    actionAbortRef.current = new AbortController();
 
     return () => {
       mountedRef.current = false;
-      abortRef.current?.abort();
+      loadAbortRef.current?.abort();
+      actionAbortRef.current?.abort();
     };
   }, []);
 
   useEffect(() => {
-    api.quiz.get(id, abortRef.current.signal)
+    api.quiz.get(id, loadAbortRef.current.signal)
       .then(({ quiz: q }) => {
         if (!mountedRef.current) return;
         setQuiz(q);
@@ -57,8 +60,8 @@ export default function Quiz() {
   const handleExplain = useCallback(async () => {
     if (!answers[current]?.userAnswer || explaining) return;
     setExplaining(true);
-    abortRef.current?.abort();
-    const signal = (abortRef.current = new AbortController()).signal;
+    actionAbortRef.current?.abort();
+    const signal = (actionAbortRef.current = new AbortController()).signal;
     try {
       const res = await withLoading('Generating explanation…', () =>
         api.ai.explain({
@@ -87,8 +90,8 @@ export default function Quiz() {
   const handleSubmit = async () => {
     if (submitting) return;
     setSubmitting(true);
-    abortRef.current?.abort();
-    const signal = (abortRef.current = new AbortController()).signal;
+    actionAbortRef.current?.abort();
+    const signal = (actionAbortRef.current = new AbortController()).signal;
     try {
       const timeTaken = Math.round((Date.now() - startTime) / 1000);
       const result = await withLoading('Evaluating your answers…', () =>

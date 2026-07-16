@@ -19,46 +19,61 @@ export default function SessionDetail() {
   const [summary, setSummary] = useState(null);
   const [studyPlan, setStudyPlan] = useState(null);
   const [questionCount, setQuestionCount] = useState(5);
+  const [pollError, setPollError] = useState(false);
 
-  // Cancel in-flight requests on unmount/route change and prevent state
-  // updates after unmount.
+  // Two independent abort controllers:
+  //  - pollAbortRef  -> the background session-GET poll
+  //  - actionAbortRef -> AI button requests (quiz/flashcards/summary/study plan)
+  // They must stay SEPARATE: cancelling an AI action must never abort
+  // the poll, otherwise the poll's in-flight GET shows up as "cancelled"
+  // in the Network tab and the page silently loses its live status.
   const mountedRef = useRef(true);
-  const abortRef = useRef(new AbortController());
+  const pollAbortRef = useRef(new AbortController());
+  const actionAbortRef = useRef(new AbortController());
 
   useEffect(() => {
     // In React 18 Strict Mode, components mount -> unmount -> remount.
     // We must reset these refs on mount so they aren't permanently dead.
     mountedRef.current = true;
-    abortRef.current = new AbortController();
+    pollAbortRef.current = new AbortController();
+    actionAbortRef.current = new AbortController();
 
     return () => {
       mountedRef.current = false;
-      abortRef.current?.abort();
+      pollAbortRef.current?.abort();
+      actionAbortRef.current?.abort();
     };
   }, []);
 
   const fetchSession = useCallback(async () => {
     try {
-      const { session: s } = await api.learning.session(id, abortRef.current.signal);
+      const { session: s } = await api.learning.session(id, pollAbortRef.current.signal);
       if (!mountedRef.current) return;
+      setPollError(false);
       setSession(s);
     } catch (err) {
       if (err?.name === 'AbortError' || err?.isCanceled) return;
-      console.error(err);
+      // Surface backend/network failures instead of silently retrying forever
+      // while the UI sits on the "AI is analyzing…" banner.
+      if (!pollError) {
+        setPollError(true);
+        notify({ type: 'error', title: 'Lost connection to server', message: err.message });
+      }
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [id]);
+  }, [id, notify, pollError]);
 
   useEffect(() => {
     fetchSession();
     const interval = setInterval(() => {
+      if (pollError) return;
       if (session?.analysisStatus === 'processing' || session?.analysisStatus === 'pending') {
         fetchSession();
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [fetchSession, session?.analysisStatus]);
+  }, [fetchSession, session?.analysisStatus, pollError]);
 
   useEffect(() => {
     if (session) {
@@ -74,12 +89,13 @@ export default function SessionDetail() {
   // Run an AI action behind the global loading bar; on failure, show a toast
   // with an inline Retry button (and never a raw browser alert). The in-flight
   // request is aborted (a) when a new action starts, and (b) on unmount.
+  // Uses actionAbortRef ONLY — never the poll controller.
   const runAction = useCallback(
     async ({ label, fn, onSuccess, errorTitle }) => {
-      // Cancel any previously running AI request before starting a new one.
-      abortRef.current?.abort();
+      // Cancel only the previous AI action, never the background session poll.
+      actionAbortRef.current?.abort();
       const controller = new AbortController();
-      abortRef.current = controller;
+      actionAbortRef.current = controller;
 
       try {
         const result = await withLoading(label, () => fn(controller.signal));

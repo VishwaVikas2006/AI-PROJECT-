@@ -179,9 +179,19 @@ uploads/                # Uploaded files
 
 ### Request shape handling
 Gemini may return either a **bare JSON array** of questions or an object wrapping
-them under a `questions` key. The generator accepts **both** shapes; a bare array
-is no longer mistaken for a failure (which previously triggered the degenerate
-fallback with identical options on every question).
+them under a `questions` key. Other providers (Cohere, Mistral, OpenRouter
+non-Gemini models) sometimes wrap the array under a different top-level key
+(`quiz`, `items`, or `data`). The generator normalizes **all** of these equivalent
+shapes to `rawQuestions` **before** validation, so a valid response is never
+mistaken for a failure (which previously triggered the degenerate fallback with
+identical options on every question).
+
+This was the root cause of the intermittent `"Quiz generator returned invalid
+question set"` error when using providers other than Gemini: the previous code
+only unwrapped `questions` / a bare array, so a response wrapped under `quiz`,
+`items`, or `data` failed the `Array.isArray(rawQuestions)` check and fell through
+to the fallback. The fix is a **shape normalization only** — question-content
+validation remains exactly as strict as before.
 
 ### Fallback
 If the AI call fails (parse error, rate limit, truncation after retries), the
